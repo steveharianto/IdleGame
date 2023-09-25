@@ -3,46 +3,66 @@ import { useState, useEffect } from "react";
 import "./App.css";
 
 function App() {
-    const [coin, setCoin] = useState(1);
-    const [cps, setCps] = useState(1);
-
-    const [upgradeCost, setUpgradeCost] = useState(1);
-    const [cost1, setCost1] = useState(100);
-    const [cost2, setCost2] = useState(1000);
-    const [cost3, setCost3] = useState(10000);
+    const [coin, setCoin] = useState({
+        value: 1,
+        prefix: 0,
+    });
+    const [cps, setCps] = useState({
+        value: 100,
+        prefix: 0,
+    });
+    const [upgradeCost, setUpgradeCost] = useState({
+        value: 1,
+        prefix: 0,
+    });
 
     let addCoin = () => {
-        setCoin((prevCoin) => prevCoin + cps / 10);
+        // If Prefix coin == cps
+        if (coin.prefix == cps.prefix) {
+            setCoin((prevCoin) => ({
+                ...prevCoin,
+                value: prevCoin.value + cps.value / 10,
+            }));
+            console.log("Add Coin : coin == cps");
+        }
+        // If Prefix coin > cps
+        else if (coin.prefix > cps.prefix) {
+            let tempCpsValue = cps.value / 10;
+            let prefixDiff = coin.prefix - cps.prefix;
+            while (prefixDiff > 0) {
+                tempCpsValue /= 1000;
+                prefixDiff--;
+            }
+            setCoin((prevCoin) => ({
+                ...prevCoin,
+                value: prevCoin.value + tempCpsValue,
+            }));
+            console.log("Add Coin : coin > cps");
+        }
+        // If Prefix coin < cps
+        else {
+            let tempCpsValue = cps.value / 10;
+            let prefixDiff = cps.prefix - coin.prefix;
+            setCoin((prevCoin) => ({
+                ...prevCoin,
+                prefix: prevCoin.prefix + prefixDiff,
+                value: prevCoin.value + tempCpsValue,
+            }));
+            console.log("Add Coin : coin < cps");
+        }
     };
 
     // Upgrades
     const upgrade = () => {
-        if (coin >= upgradeCost) {
-            setCps(cps + 1);
-            setCoin(coin - upgradeCost);
-            setUpgradeCost(upgradeCost + 1);
-        }
-    };
-    const upgrade1 = () => {
-        if (coin >= cost1) {
-            setCps(cps + 10);
-            setCoin(coin - cost1);
-            setCost1(cost1 + 100);
-        }
-    };
-    const upgrade2 = () => {
-        if (coin >= cost2) {
-            setCps(cps + 100);
-            setCoin(coin - cost2);
-            setCost2(cost2 + 1000);
-        }
-    };
-    const upgrade3 = () => {
-        if (coin >= cost3) {
-            setCps(cps + 1000);
-            setCoin(coin - cost3);
-            setCost3(cost3 + 10000);
-        }
+        // if (coin >= upgradeCost) {
+        //     setCps(cps + 1);
+        //     setCoin(coin - upgradeCost);
+        //     setUpgradeCost(upgradeCost + 1);
+        // }
+        setCps((prevCps) => ({
+            ...prevCps,
+            prefix: prevCps.prefix + 1,
+        }));
     };
 
     useEffect(() => {
@@ -51,40 +71,45 @@ function App() {
         return () => {
             clearInterval(intervalId);
         };
+    }, [coin.prefix, cps]);
+
+    // Change Prefix
+    useEffect(() => {
+        if (coin.value >= 1000) {
+            setCoin((prevCoin) => ({
+                ...prevCoin,
+                prefix: prevCoin.prefix + 1,
+                value: prevCoin.value / 1000,
+            }));
+        }
+    }, [coin]);
+    useEffect(() => {
+        if (cps.value >= 1000) {
+            setCoin((prevCps) => ({
+                ...prevCps,
+                prefix: prevCps.prefix + 1,
+                value: prevCps.value / 1000,
+            }));
+        }
     }, [cps]);
+
+    let prefixList = ["", "K", "M", "B", "T"];
 
     return (
         <>
-            <h1 className="coinValue">{Math.round(coin).toLocaleString("en-US", { style: "currency", currency: "USD" })}</h1>
-            <p>cps : {cps.toLocaleString("en-US", { style: "currency", currency: "USD" })}</p>
+            <h1 className="coinValue">
+                ${coin.value.toFixed(3)} {coin.prefix < prefixList.length ? prefixList[coin.prefix] : `E${coin.prefix * 3}`}
+            </h1>
+            <p>
+                cps : ${cps.value} {cps.prefix < prefixList.length ? prefixList[cps.prefix] : `E${cps.prefix * 3}`}
+            </p>
             <div style={{ display: "flex", flexDirection: "column" }}>
                 <div style={{ display: "flex", alignItems: "center" }}>
                     <p style={{ margin: "0 1em 1em 0", width: "5em" }}>+ 1</p>
                     <button onClick={upgrade} disabled={upgradeCost > coin}>
-                        {upgradeCost.toLocaleString("en-US", { style: "currency", currency: "USD" })}
+                        {upgradeCost.value} {cps.prefix < prefixList.length ? prefixList[cps.prefix] : `E${cps.prefix * 3}`}
                     </button>
                     {/* <p style={{ margin: "0 1em 1em 0", width: "5em" }}>Level : {upgradeCost}</p> */}
-                </div>
-
-                <div style={{ display: "flex", alignItems: "center" }}>
-                    <p style={{ margin: "0 1em 1em 0", width: "5em" }}>+ 10</p>
-                    <button onClick={upgrade1} disabled={cost1 > coin}>
-                        {cost1.toLocaleString("en-US", { style: "currency", currency: "USD" })}
-                    </button>
-                    {/* <p style={{ margin: "0 1em 1em 0", width: "5em" }}>Level : {cost1 / 100}</p> */}
-                </div>
-
-                <div style={{ display: "flex", alignItems: "center" }}>
-                    <p style={{ margin: "0 1em 1em 0", width: "5em" }}>+ 100</p>
-                    <button onClick={upgrade2} disabled={cost2 > coin}>
-                        {cost2.toLocaleString("en-US", { style: "currency", currency: "USD" })}
-                    </button>
-                </div>
-                <div style={{ display: "flex", alignItems: "center" }}>
-                    <p style={{ margin: "0 1em 1em 0", width: "5em" }}>+ 1000</p>
-                    <button onClick={upgrade3} disabled={cost3 > coin}>
-                        {cost3.toLocaleString("en-US", { style: "currency", currency: "USD" })}
-                    </button>
                 </div>
             </div>
         </>
