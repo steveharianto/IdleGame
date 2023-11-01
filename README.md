@@ -1,2 +1,2 @@
-# [Try Game](https://steveharianto.github.io/IdleGame/)
+[Try Game](https://steveharianto.github.io/IdleGame/)
 
