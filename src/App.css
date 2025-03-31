@@ -49,3 +49,53 @@ button {
 .coinValue {
     transition: 0.5s ease-in-out;
 }
+
+/* Pulse animation when clicking */
+@keyframes pulse {
+  0% {
+    transform: scale(1);
+  }
+  50% {
+    transform: scale(1.05);
+  }
+  100% {
+    transform: scale(1);
+  }
+}
+
+.pulse-animation {
+  animation: pulse 0.3s ease-in-out;
+}
+
+/* Floating text animation */
+@keyframes float-up {
+  0% {
+    opacity: 1;
+    transform: translateY(0);
+  }
+  100% {
+    opacity: 0;
+    transform: translateY(-50px);
+  }
+}
+
+.click-effect {
+  animation: float-up 1s ease-out forwards;
+  text-shadow: 0 0 5px rgba(255, 255, 255, 0.7);
+  z-index: 10;
+}
+
+/* Make the button have a nice press effect */
+button:active:not(:disabled) {
+  transform: scale(0.98);
+  transition: transform 0.1s;
+}
+
+/* Add a subtle transition to buttons */
+button {
+  transition: all 0.2s ease;
+}
+
+button:hover:not(:disabled) {
+  filter: brightness(1.1);
+}

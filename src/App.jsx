@@ -1,4 +1,4 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, useRef } from "react";
 
 import "./App.css";
 
@@ -26,6 +26,10 @@ function App() {
 
     // Add at the top of your component
     const [isPurchasing, setIsPurchasing] = useState(false);
+
+    // Add state for click animations
+    const [clickEffects, setClickEffects] = useState([]);
+    const coinRef = useRef(null);
 
     // Format large numbers with prefixes (K, M, B, etc.)
     const formatNumber = (num) => {
@@ -167,11 +171,41 @@ function App() {
         setTimeout(() => setIsPurchasing(false), 250);
     };
 
-    // Handle manual clicks
-    const handleClick = () => {
-        const clickerLevel = upgrades.find(u => u.id === 1).level;
-        const clickValue = 1 + clickerLevel; // Each clicker level adds +1 to click value
+    // Enhanced click handler with animations
+    const handleClick = (event) => {
+        // Get click position relative to the element
+        const rect = event.currentTarget.getBoundingClientRect();
+        const x = event.clientX - rect.left;
+        const y = event.clientY - rect.top;
         
+        // Calculate click value
+        const clickerLevel = upgrades.find(u => u.id === 1).level;
+        const clickValue = 1 + clickerLevel;
+        
+        // Add floating text effect
+        const newEffect = {
+            id: Date.now(),
+            x,
+            y,
+            value: clickValue
+        };
+        
+        setClickEffects(prev => [...prev, newEffect]);
+        
+        // Remove effect after animation completes
+        setTimeout(() => {
+            setClickEffects(prev => prev.filter(effect => effect.id !== newEffect.id));
+        }, 1000);
+        
+        // Add pulse animation to the coin amount
+        if (coinRef.current) {
+            coinRef.current.classList.remove('pulse-animation');
+            // Force a reflow to restart the animation
+            void coinRef.current.offsetWidth;
+            coinRef.current.classList.add('pulse-animation');
+        }
+        
+        // Update coins
         setGameState(prev => ({
             ...prev,
             coins: prev.coins + clickValue
@@ -197,11 +231,30 @@ function App() {
     return (
         <>
             <h1 
+                ref={coinRef}
                 className="coinValue" 
                 onClick={handleClick} 
-                style={{ cursor: 'pointer', userSelect: 'none' }}
+                style={{ cursor: 'pointer', userSelect: 'none', position: 'relative' }}
             >
                 ${formatNumber(coins)}
+                
+                {/* Floating click effects */}
+                {clickEffects.map(effect => (
+                    <div 
+                        key={effect.id}
+                        className="click-effect"
+                        style={{
+                            position: 'absolute',
+                            left: `${effect.x}px`,
+                            top: `${effect.y}px`,
+                            color: '#4caf50',
+                            fontWeight: 'bold',
+                            pointerEvents: 'none'
+                        }}
+                    >
+                        +{effect.value}
+                    </div>
+                ))}
             </h1>
             
             <p style={{ userSelect: 'none' }}>
