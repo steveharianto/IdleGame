@@ -574,9 +574,9 @@ function App() {
                 <div style={{ display: "flex", flexDirection: "column", gap: "5px" }}> {/* Reduced gap slightly */}
                      {/* Filter upgrades based on totalEarnings before mapping */}
                      {upgrades
-                        .filter(upgrade => totalEarnings >= upgrade.baseCost || upgrade.level > 0) // Show if affordable OR already bought
+                        .filter(upgrade => totalEarnings >= upgrade.baseCost || upgrade.level > 0)
                         .map(upgrade => {
-                            // --- Calculate cost and quantity for THIS upgrade based on multiplier ---
+                            // --- Calculate cost and quantity (remains the same) ---
                             let quantityToBuy = 0;
                             let currentBulkCost = 0;
                             let isMaxAffordableZero = false;
@@ -586,19 +586,53 @@ function App() {
                                 currentBulkCost = getBulkUpgradeCost(upgrade, quantityToBuy);
                                 isMaxAffordableZero = quantityToBuy === 0;
                             } else {
-                                quantityToBuy = buyMultiplier; // Use the number 1, 10, or 100
+                                quantityToBuy = buyMultiplier;
                                 currentBulkCost = getBulkUpgradeCost(upgrade, quantityToBuy);
                             }
-                            
-                            // Determine if the button should be disabled
                             const cannotAfford = coins < currentBulkCost || (buyMultiplier === 'max' && isMaxAffordableZero);
 
+                            // --- Calculate Total Effect Gain for Display (Including Prestige Bonus) ---
+                            let effectDisplay = '';
+                            // Get the current prestige bonus multiplier
+                            const currentCpsBonusMultiplier = calculatePrestigeBonus(prestigePoints);
+
+                            if (quantityToBuy > 0) {
+                                if (upgrade.id === 1) {
+                                    // Clicker effect ALSO gets its own prestige bonus
+                                    const currentClickBonusMultiplier = calculatePrestigeClickBonus(prestigePoints);
+                                    const totalClickIncrease = upgrade.effect * quantityToBuy * currentClickBonusMultiplier;
+                                    // Display click increase rounded to nearest whole number for simplicity
+                                    effectDisplay = `+${Math.round(totalClickIncrease)}/click`;
+                                } else {
+                                    // Base CPS increase from levels
+                                    const baseCpsIncrease = upgrade.effect * quantityToBuy;
+                                    // Apply the current prestige CPS bonus to the increase
+                                    const totalCpsIncreaseWithBonus = baseCpsIncrease * currentCpsBonusMultiplier;
+                                    effectDisplay = `+${formatNumber(totalCpsIncreaseWithBonus)}/s`;
+                                }
+                            } else if (buyMultiplier !== 1) {
+                               effectDisplay = upgrade.id === 1 ? '+0/click' : '+0/s';
+                            } else {
+                                // Default for x1 buy - show potential gain WITH bonus applied
+                                if (upgrade.id === 1) {
+                                     const currentClickBonusMultiplier = calculatePrestigeClickBonus(prestigePoints);
+                                     const singleClickIncrease = upgrade.effect * currentClickBonusMultiplier;
+                                     effectDisplay = `+${Math.round(singleClickIncrease)}/click`;
+                                } else {
+                                    const singleCpsIncreaseWithBonus = upgrade.effect * currentCpsBonusMultiplier;
+                                    effectDisplay = `+${formatNumber(singleCpsIncreaseWithBonus)}/s`;
+                                }
+                            }
+
+
                             return (
-                                <div key={upgrade.id} className="upgrade-item"> 
-                                    <div style={{ display: "flex", alignItems: "center", padding: '5px 0' }}> {/* Inner flex container */}
-                                        <div style={{ width: "100px", textAlign: "left", fontSize: '0.9em' }}> {/* Slightly smaller font */}
+                                <div key={upgrade.id} className="upgrade-item">
+                                    <div style={{ display: "flex", alignItems: "center", padding: '5px 0' }}>
+                                        {/* Upgrade Name & Level */}
+                                        <div style={{ width: "100px", textAlign: "left", fontSize: '0.9em' }}>
                                             {upgrade.name} ({upgrade.level})
                                         </div>
+                                        {/* Buy Button */}
                                         <button 
                                             onClick={() => buyUpgrade(upgrade.id)} 
                                             disabled={cannotAfford}
@@ -609,18 +643,16 @@ function App() {
                                                 padding: '0.4em 0.8em', // Slightly smaller padding
                                                 fontSize: '0.85em' // Slightly smaller font
                                             }}
-                                            title={buyMultiplier === 'max' ? `Buy Max (${quantityToBuy})` : `Buy ${quantityToBuy}`} // Tooltip
+                                            title={buyMultiplier === 'max' ? `Buy Max (${quantityToBuy})` : `Buy ${quantityToBuy}`} 
                                         >
-                                            {/* Display Buy xQuantity: $Cost */}
                                             Buy {buyMultiplier === 'max' ? `Max (${quantityToBuy})` : `x${quantityToBuy}`}: ${formatNumber(currentBulkCost)}
                                         </button>
-                                        <div style={{ width: "100px", textAlign: "right", fontSize: '0.9em' }}> {/* Slightly smaller font */}
-                                            {upgrade.id === 1 ? 
-                                                `+${upgrade.effect}/click` : 
-                                                `+${formatNumber(upgrade.effect)}/s`}
+                                        {/* UPDATED Effect Display */}
+                                        <div style={{ width: "100px", textAlign: "right", fontSize: '0.9em' }}>
+                                            {effectDisplay}
                                         </div>
                                     </div>
-                                 </div> // End animation wrapper
+                                 </div> 
                             );
                         })}
                     
