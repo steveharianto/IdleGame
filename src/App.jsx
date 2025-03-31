@@ -2,8 +2,12 @@ import { useState, useEffect, useRef } from "react";
 import EarningsChart from './EarningsChart'; // Import the chart component
 import UpgradeDistributionChart from './UpgradeDistributionChart'; // Import the new chart
 import GameStats from './GameStats'; // Import the stats component
+import OfflineProgressPopup from './OfflineProgressPopup'; // Import the new popup component
+import ConfirmationPopup from './ConfirmationPopup'; // *** Import the Confirmation Popup ***
 
 import "./App.css";
+import "./OfflineProgressPopup.css"; // Import the popup styles
+import "./ConfirmationPopup.css"; // *** Import Confirmation Popup CSS ***
 
 // --- Helper Functions (Moved outside the component) ---
 const PRESTIGE_REQUIREMENT = 1e6; // 1 Million coins needed to prestige
@@ -198,6 +202,11 @@ function App() {
     // --- Define multiplier options ---
     const multiplierOptions = [1, 10, 100, 'max'];
 
+    // *** NEW: State for the offline progress popup message ***
+    const [offlineProgressInfo, setOfflineProgressInfo] = useState(null);
+    // *** NEW: State for confirmation dialogs ***
+    const [confirmationInfo, setConfirmationInfo] = useState(null); // Stores { message, onConfirm }
+
     // Game loop - update coins with precision handling
     useEffect(() => {
         // Set a fixed starting time to ensure consistent tracking
@@ -231,34 +240,48 @@ function App() {
         // Handle offline progress separately with better precision
         const checkOfflineProgress = () => {
             const now = Date.now();
-            const offlineTime = (now - gameState.lastUpdate) / 1000;
-            
-            if (offlineTime > 5) {
-                setGameState(prev => {
+            // Use gameState from state, not closure, for latest value
+            setGameState(prev => {
+                const offlineTime = (now - prev.lastUpdate) / 1000;
+                let newCoins = prev.coins;
+                let newTotalEarnings = prev.totalEarnings;
+                let newHighestCoins = prev.highestCoins;
+                let popupMessage = null; // Variable to hold potential popup message
+
+                if (offlineTime > 5) { // Check for significant offline time
                     const earnings = parseFloat((prev.coinsPerSecond * offlineTime).toFixed(10));
-                    
+
                     if (!isNaN(earnings) && earnings > 0) {
-                        alert(`Welcome back! You earned $${formatNumber(earnings)} while away.`);
+                        // *** Set the popup message instead of alert ***
+                        popupMessage = `You earned $${formatNumber(earnings)} while away.`;
+                        console.log("Offline earnings:", earnings); // Keep console log for debugging
                     }
-                    
-                    const newCoins = parseFloat((prev.coins + (isNaN(earnings) ? 0 : earnings)).toFixed(10));
-                    return {
-                        ...prev,
-                        coins: newCoins,
-                        // Update total earnings (approximate - more accurate if calculated differently)
-                        totalEarnings: prev.totalEarnings + (isNaN(earnings) ? 0 : earnings), 
-                        // Update highest coins if needed
-                        highestCoins: Math.max(prev.highestCoins, newCoins), 
-                        lastUpdate: now
-                    };
-                });
-            } else {
-                // Just update the lastUpdate time if no significant offline time
-                setGameState(prev => ({
+
+                    const earnedCoins = isNaN(earnings) ? 0 : earnings;
+                    newCoins = parseFloat((prev.coins + earnedCoins).toFixed(10));
+                    newTotalEarnings = prev.totalEarnings + earnedCoins;
+                    newHighestCoins = Math.max(prev.highestCoins, newCoins);
+                }
+
+                // Update state including new coins and lastUpdate
+                const newState = {
                     ...prev,
+                    coins: newCoins,
+                    totalEarnings: newTotalEarnings,
+                    highestCoins: newHighestCoins,
                     lastUpdate: now
-                }));
-            }
+                };
+
+                // *** Trigger the popup state update AFTER game state update ***
+                // Use setTimeout to ensure it happens after the current render cycle
+                setTimeout(() => {
+                    if (popupMessage) {
+                        setOfflineProgressInfo(popupMessage);
+                    }
+                }, 0);
+
+                return newState;
+            });
         };
         
         // Check offline progress after a small delay
@@ -413,7 +436,7 @@ function App() {
         });
     };
 
-    // Reset game
+    // Reset game - Potentially add confirmation later if needed
     const resetGame = () => {
         if (!confirm("Are you sure you want to HARD reset? This will erase ALL progress, including Prestige Points!")) {
             return;
@@ -422,57 +445,57 @@ function App() {
         
         const initialStateReset = {
             coins: 0, coinsPerSecond: 0, lastUpdate: Date.now(),
-            // Reset using the full list
-            upgrades: ALL_UPGRADES.map(u => ({ ...u, level: 0 })), 
+            upgrades: ALL_UPGRADES.map(u => ({ ...u, level: 0 })),
             prestigePoints: 0, coinHistory: [{ timestamp: Date.now(), coins: 0 }],
-            totalClicks: 0, manualEarnings: 0, totalEarnings: 0, 
+            totalClicks: 0, manualEarnings: 0, totalEarnings: 0,
             startTime: Date.now(), prestigeCount: 0, highestCoins: 0
         };
-        initialStateReset.coinsPerSecond = calculateTotalCPS(initialStateReset.upgrades, initialStateReset.prestigePoints); 
+        initialStateReset.coinsPerSecond = calculateTotalCPS(initialStateReset.upgrades, initialStateReset.prestigePoints);
         setGameState(initialStateReset);
     };
 
-    // --- Prestige Function ---
-    const prestigeGame = () => {
-        const gain = calculatePrestigeGain(coins);
-        
-        if (coins < PRESTIGE_REQUIREMENT || gain <= 0) {
-            alert(`You need at least $${formatNumber(PRESTIGE_REQUIREMENT)} to prestige for points.`);
-            return;
-        }
-    
-        if (!confirm(`Are you sure you want to prestige? You will gain ${gain} Prestige Points, boosting future CPS, but reset your current coins and upgrades.`)) {
-            return;
-        }
-    
+    // *** NEW: Function containing the actual prestige logic ***
+    const executePrestige = (gain) => {
         setGameState(prev => {
             const newTotalPrestigePoints = prev.prestigePoints + gain;
-            // Reset upgrades using the full list
             const initialUpgrades = ALL_UPGRADES.map(u => ({ ...u, level: 0 }));
-            // Calculate the new CPS with reset upgrades but new prestige bonus
             const newCPS = calculateTotalCPS(initialUpgrades, newTotalPrestigePoints);
-    
+
             console.log(`Prestiged! Gained ${gain} points. Total: ${newTotalPrestigePoints}`);
-    
+
             return {
-                ...prev, // Keep previous state as base
-                coins: 0, // Reset current coins
-                coinsPerSecond: newCPS, // Set new CPS based on prestige
-                upgrades: initialUpgrades, // Set reset upgrades
-                prestigePoints: newTotalPrestigePoints, // Update prestige points
-                lastUpdate: Date.now(), // Update timestamp
-                prestigeCount: prev.prestigeCount + 1, // Increment prestige count
-                // --- Persisted Stats ---
-                // totalEarnings continues from its current value (not reset)
-                totalEarnings: prev.totalEarnings, 
-                // coinHistory is NOT reset, so the chart continues
-                coinHistory: prev.coinHistory, 
-                // Keep other persistent stats
-                 totalClicks: prev.totalClicks, 
-                 manualEarnings: prev.manualEarnings, 
-                 startTime: prev.startTime, 
-                 highestCoins: prev.highestCoins, 
+                ...prev,
+                coins: 0,
+                coinsPerSecond: newCPS,
+                upgrades: initialUpgrades,
+                prestigePoints: newTotalPrestigePoints,
+                lastUpdate: Date.now(),
+                prestigeCount: prev.prestigeCount + 1,
+                totalEarnings: prev.totalEarnings,
+                coinHistory: prev.coinHistory,
+                totalClicks: prev.totalClicks,
+                manualEarnings: prev.manualEarnings,
+                startTime: prev.startTime,
+                highestCoins: prev.highestCoins,
             };
+        });
+    };
+
+    // --- Prestige Function - Modified to use Popup ---
+    const prestigeGame = () => {
+        const gain = calculatePrestigeGain(coins);
+
+        if (coins < PRESTIGE_REQUIREMENT || gain <= 0) {
+            // Use the offline popup for simple info messages if desired, or keep alert
+             setOfflineProgressInfo(`You need at least $${formatNumber(PRESTIGE_REQUIREMENT)} to prestige for points.`);
+            // alert(`You need at least $${formatNumber(PRESTIGE_REQUIREMENT)} to prestige for points.`);
+            return;
+        }
+
+        // *** Set confirmation state instead of calling confirm() ***
+        setConfirmationInfo({
+            message: `Are you sure you want to prestige? You will gain ${gain} Prestige Points, boosting future CPS, but reset your current coins and upgrades. Your total earnings and history will be kept.`,
+            onConfirm: () => executePrestige(gain) // Pass the actual prestige execution function
         });
     };
 
@@ -483,257 +506,284 @@ function App() {
         setBuyMultiplier(multiplierOptions[nextIndex]);
     };
 
+    const closeOfflinePopup = () => {
+        setOfflineProgressInfo(null);
+    };
+
+    // *** NEW: Handlers for the Confirmation Popup ***
+    const handleConfirm = () => {
+        if (confirmationInfo && typeof confirmationInfo.onConfirm === 'function') {
+            confirmationInfo.onConfirm(); // Execute the stored action
+        }
+        setConfirmationInfo(null); // Close the popup
+    };
+
+    const handleCancel = () => {
+        setConfirmationInfo(null); // Close the popup
+    };
+
     return (
-        // Main container - Increase the gap
-        <div style={{ display: 'flex', gap: '2.5rem', alignItems: 'flex-start' }}> {/* Increased gap from 1.5rem to 2.5rem */}
+        <> {/* Fragment */}
+            {/* Render Popups Conditionally */}
+            <OfflineProgressPopup message={offlineProgressInfo} onClose={closeOfflinePopup} />
+            {/* *** Render Confirmation Popup *** */}
+            <ConfirmationPopup
+                message={confirmationInfo?.message} // Use optional chaining
+                onConfirm={handleConfirm}
+                onCancel={handleCancel}
+            />
 
-            {/* --- Left Column: Statistics --- */}
-            <div style={{ flex: 2, minWidth: '320px' }}> {/* Optional: Slightly increase minWidth */}
-                 <GameStats 
-                    totalClicks={totalClicks}
-                    manualEarnings={manualEarnings}
-                    totalEarnings={totalEarnings}
-                    startTime={startTime}
-                    prestigeCount={prestigeCount}
-                    highestCoins={highestCoins}
-                />
-            </div>
+            {/* Main container - Increase the gap */}
+            <div style={{ display: 'flex', gap: '2.5rem', alignItems: 'flex-start' }}> {/* Increased gap from 1.5rem to 2.5rem */}
 
-            {/* --- Middle Column: Main Game Elements --- */}
-            <div style={{ flex: 3 }}> 
-                {/* Coin Display */}
-                <h1 
-                    ref={coinRef}
-                    className="coinValue" 
-                    onClick={handleClick} 
-                    style={{ cursor: 'pointer', userSelect: 'none', position: 'relative', marginBottom: '0.5rem' }} // Adjusted margin
-                >
-                    ${formatNumber(coins)}
-                    {/* Floating click effects */}
-                    {clickEffects.map(effect => (
-                         <div 
-                            key={effect.id}
-                            className="click-effect"
-                            style={{
-                                position: 'absolute',
-                                left: `${effect.x}px`,
-                                top: `${effect.y}px`,
-                                color: '#4caf50',
-                                fontWeight: 'bold',
-                                pointerEvents: 'none'
-                            }}
-                        >
-                            +{effect.value}
-                        </div>
-                    ))}
-            </h1>
-                
-                {/* CPS Display */}
-                <p style={{ userSelect: 'none', marginTop: 0, marginBottom: '1rem' }}> {/* Adjusted margin */}
-                    per second: ${formatNumber(coinsPerSecond)}
-                </p>
-
-                {/* Prestige Info Display - Added Click Bonus */}
-                <div style={{ margin: "0 0 1rem 0", padding: "10px", border: "1px solid #555", borderRadius: "5px", textAlign: 'left' }}>
-                    <p style={{ margin: 0, fontWeight: 'bold' }}>Prestige</p>
-                    <p style={{ margin: '5px 0 0 0' }}>Points: {prestigePoints}</p>
-                    <p style={{ margin: '5px 0 0 0' }}>
-                        {/* Display both bonuses */}
-                        CPS Bonus: x{calculatePrestigeBonus(prestigePoints).toFixed(2)} | Click Bonus: x{calculatePrestigeClickBonus(prestigePoints).toFixed(2)}
-                    </p>
-                    {coins >= PRESTIGE_REQUIREMENT / 10 && (
-                         <p style={{ margin: '5px 0 0 0', opacity: 0.8 }}>
-                             Gain on Prestige: +{calculatePrestigeGain(coins)} points
-                         </p>
-                    )}
+                {/* --- Left Column: Statistics --- */}
+                <div style={{ flex: 2, minWidth: '320px' }}> {/* Optional: Slightly increase minWidth */}
+                     <GameStats 
+                        totalClicks={totalClicks}
+                        manualEarnings={manualEarnings}
+                        totalEarnings={totalEarnings}
+                        startTime={startTime}
+                        prestigeCount={prestigeCount}
+                        highestCoins={highestCoins}
+                    />
                 </div>
 
-                {/* --- UPDATED: Single Buy Multiplier Toggle Button --- */}
-                <div style={{ marginBottom: '1rem', textAlign: 'center' }}>
-                    <button
-                        onClick={toggleBuyMultiplier} // Use the new toggle function
-                        style={{
-                            padding: '8px 15px', // Slightly larger padding
-                            margin: '0 3px',
-                            fontSize: '0.9em', // Slightly larger font
-                            cursor: 'pointer',
-                            border: '1px solid #777', // Consistent border
-                            backgroundColor: '#444', // Consistent background
-                            color: '#eee',
-                            borderRadius: '4px',
-                            minWidth: '100px' // Give it more width
-                        }}
-                        title="Click to change buy amount" // Add a tooltip
+                {/* --- Middle Column: Main Game Elements --- */}
+                <div style={{ flex: 3 }}> 
+                    {/* Coin Display */}
+                    <h1 
+                        ref={coinRef}
+                        className="coinValue" 
+                        onClick={handleClick} 
+                        style={{ cursor: 'pointer', userSelect: 'none', position: 'relative', marginBottom: '0.5rem' }} // Adjusted margin
                     >
-                        {/* Display the current multiplier */}
-                        Buy: {buyMultiplier === 'max' ? 'Max' : `x${buyMultiplier}`}
-                    </button>
-                </div>
-
-                {/* --- UPDATED: Upgrades List Container with Scroll --- */}
-                <div 
-                    className="upgrade-list-container" // Add class name for CSS targeting
-                    style={{ 
-                        maxHeight: '210px', // Limit height (adjust as needed for ~5 items)
-                        overflowY: 'auto',  // Enable vertical scrollbar only when content overflows
-                        display: "flex", 
-                        flexDirection: "column", 
-                        gap: "5px",
-                        paddingRight: '5px' // Add a little padding so scrollbar doesn't overlap content
-                    }}
-                > 
-                     {/* Filter upgrades based on totalEarnings before mapping */}
-                     {upgrades
-                        .filter(upgrade => totalEarnings >= upgrade.baseCost || upgrade.level > 0)
-                        .map(upgrade => {
-                            // --- Calculate cost and quantity (remains the same) ---
-                            let quantityToBuy = 0;
-                            let currentBulkCost = 0;
-                            let isMaxAffordableZero = false;
-
-                            if (buyMultiplier === 'max') {
-                                quantityToBuy = calculateMaxAffordable(upgrade, coins);
-                                currentBulkCost = getBulkUpgradeCost(upgrade, quantityToBuy);
-                                isMaxAffordableZero = quantityToBuy === 0;
-                            } else {
-                                quantityToBuy = buyMultiplier;
-                                currentBulkCost = getBulkUpgradeCost(upgrade, quantityToBuy);
-                            }
-                            const cannotAfford = coins < currentBulkCost || (buyMultiplier === 'max' && isMaxAffordableZero);
-
-                            // --- Calculate Total Effect Gain for Display (Including Prestige Bonus) ---
-                            let effectDisplay = '';
-                            // Get the current prestige bonus multiplier
-                            const currentCpsBonusMultiplier = calculatePrestigeBonus(prestigePoints);
-
-                            if (quantityToBuy > 0) {
-                                if (upgrade.id === 1) {
-                                    // Clicker effect ALSO gets its own prestige bonus
-                                    const currentClickBonusMultiplier = calculatePrestigeClickBonus(prestigePoints);
-                                    const totalClickIncrease = upgrade.effect * quantityToBuy * currentClickBonusMultiplier;
-                                    // Display click increase rounded to nearest whole number for simplicity
-                                    effectDisplay = `+${Math.round(totalClickIncrease)}/click`;
-                                } else {
-                                    // Base CPS increase from levels
-                                    const baseCpsIncrease = upgrade.effect * quantityToBuy;
-                                    // Apply the current prestige CPS bonus to the increase
-                                    const totalCpsIncreaseWithBonus = baseCpsIncrease * currentCpsBonusMultiplier;
-                                    effectDisplay = `+${formatNumber(totalCpsIncreaseWithBonus)}/s`;
-                                }
-                            } else if (buyMultiplier !== 1) {
-                               effectDisplay = upgrade.id === 1 ? '+0/click' : '+0/s';
-                            } else {
-                                // Default for x1 buy - show potential gain WITH bonus applied
-                                if (upgrade.id === 1) {
-                                     const currentClickBonusMultiplier = calculatePrestigeClickBonus(prestigePoints);
-                                     const singleClickIncrease = upgrade.effect * currentClickBonusMultiplier;
-                                     effectDisplay = `+${Math.round(singleClickIncrease)}/click`;
-                                } else {
-                                    const singleCpsIncreaseWithBonus = upgrade.effect * currentCpsBonusMultiplier;
-                                    effectDisplay = `+${formatNumber(singleCpsIncreaseWithBonus)}/s`;
-                                }
-                            }
-
-                            // --- Calculate Progress and Style for Buttons ---
-                            let buttonStyle = { // Base style for enabled/base button
-                                flex: 1,
-                                margin: '0 0.5rem',
-                                padding: '0.4em 0.8em',
-                                fontSize: '0.85em',
-                                cursor: 'pointer', // Default cursor
-                                backgroundColor: '#444', // Default background
-                                // UPDATED: Set desired border color for enabled buttons
-                                border: '1px solid #1d1d1d', 
-                                color: '#eee',         // Default text color
-                                borderRadius: '4px',    // Consistent rounding
-                                textAlign: 'center',    // Ensure text is centered
-                            };
-
-                            if (cannotAfford) {
-                                let progress = 0;
-                                // Calculate progress only if the cost is > 0 and it's not the 'max buy 0' case
-                                if (currentBulkCost > 0 && !isMaxAffordableZero) {
-                                    progress = Math.min(100, (coins / currentBulkCost) * 100);
-                                }
-
-                                // Style for disabled button with progress gradient
-                                buttonStyle = {
-                                    ...buttonStyle, // Inherit base styles
-                                    cursor: 'not-allowed', // Set cursor for disabled
-                                    background: `linear-gradient(to right, #5a5a5a ${progress}%, #333 ${progress}%)`, // Darker bg for unfilled part
-                                    color: '#aaa', // Dimmed text color for disabled
-                                    // UPDATED: Set desired border color for disabled buttons
-                                    border: '1px solid #1d1d1d', 
-                                };
-                            }
-
-                            return (
-                                <div key={upgrade.id} className="upgrade-item">
-                                    <div style={{ display: "flex", alignItems: "center", padding: '5px 0' }}>
-                                        {/* Upgrade Name & Level */}
-                                        <div style={{ width: "100px", textAlign: "left", fontSize: '0.9em' }}>
-                                            {upgrade.name} ({upgrade.level})
-                                        </div>
-                                        {/* Buy Button - Apply dynamic style */}
-                                        <button
-                                            onClick={() => buyUpgrade(upgrade.id)}
-                                            disabled={cannotAfford}
-                                            style={buttonStyle} // Apply the calculated style object
-                                            title={buyMultiplier === 'max' ? `Buy Max (${quantityToBuy})` : `Buy ${quantityToBuy}`}
-                                        >
-                                            Buy {buyMultiplier === 'max' ? `Max (${quantityToBuy})` : `x${quantityToBuy}`}: ${formatNumber(currentBulkCost)}
-                    </button>
-                                        {/* Effect Display */}
-                                        <div style={{ width: "100px", textAlign: "right", fontSize: '0.9em' }}>
-                                            {effectDisplay}
-                                        </div>
-                </div>
-            </div>
-                            );
-                        })}
-                </div> {/* --- END: Upgrades List Container --- */}
+                        ${formatNumber(coins)}
+                        {/* Floating click effects */}
+                        {clickEffects.map(effect => (
+                             <div 
+                                key={effect.id}
+                                className="click-effect"
+                                style={{
+                                    position: 'absolute',
+                                    left: `${effect.x}px`,
+                                    top: `${effect.y}px`,
+                                    color: '#4caf50',
+                                    fontWeight: 'bold',
+                                    pointerEvents: 'none'
+                                }}
+                            >
+                                +{effect.value}
+                            </div>
+                        ))}
+            </h1>
                     
-                {/* Prestige Button */}
-                <button 
-                    onClick={prestigeGame} 
-                    disabled={coins < PRESTIGE_REQUIREMENT || calculatePrestigeGain(coins) <= 0}
-                    style={{ 
-                        marginTop: "20px",
-                        marginRight: "10px",
-                        backgroundColor: "#6a0dad", 
-                        opacity: (coins < PRESTIGE_REQUIREMENT || calculatePrestigeGain(coins) <= 0) ? 0.6 : 1,
-                        width: 'auto' // Let button size naturally
-                    }}
-                >
-                    Prestige (Req: ${formatNumber(PRESTIGE_REQUIREMENT)})
-                </button>
+                    {/* CPS Display */}
+                    <p style={{ userSelect: 'none', marginTop: 0, marginBottom: '1rem' }}> {/* Adjusted margin */}
+                        per second: ${formatNumber(coinsPerSecond)}
+                    </p>
 
-                {/* Reset Button */}
-                <button 
-                    onClick={resetGame} 
-                    style={{ 
-                        marginTop: "10px", 
-                        marginLeft: "10px",
-                        backgroundColor: "#ff4d4d",
-                        width: 'auto' // Let button size naturally
-                    }}
-                >
-                    Hard Reset Game
-                </button>
-            </div> {/* --- END: Middle Column --- */}
+                    {/* Prestige Info Display - Added Click Bonus */}
+                    <div style={{ margin: "0 0 1rem 0", padding: "10px", border: "1px solid #555", borderRadius: "5px", textAlign: 'left' }}>
+                        <p style={{ margin: 0, fontWeight: 'bold' }}>Prestige</p>
+                        <p style={{ margin: '5px 0 0 0' }}>Points: {prestigePoints}</p>
+                        <p style={{ margin: '5px 0 0 0' }}>
+                            {/* Display both bonuses */}
+                            CPS Bonus: x{calculatePrestigeBonus(prestigePoints).toFixed(2)} | Click Bonus: x{calculatePrestigeClickBonus(prestigePoints).toFixed(2)}
+                        </p>
+                        {coins >= PRESTIGE_REQUIREMENT / 10 && (
+                             <p style={{ margin: '5px 0 0 0', opacity: 0.8 }}>
+                                 Gain on Prestige: +{calculatePrestigeGain(coins)} points
+                             </p>
+                        )}
+                    </div>
 
-            {/* --- Right Column: Charts --- */}
-            <div style={{ 
-                flex: 2, 
-                minWidth: '320px', // Optional: Slightly increase minWidth
-                display: 'flex',        
-                flexDirection: 'column' 
-            }}> 
-                <EarningsChart history={coinHistory} />
-                <UpgradeDistributionChart upgrades={upgrades} />
+                    {/* --- UPDATED: Single Buy Multiplier Toggle Button --- */}
+                    <div style={{ marginBottom: '1rem', textAlign: 'center' }}>
+                        <button
+                            onClick={toggleBuyMultiplier} // Use the new toggle function
+                            style={{
+                                padding: '8px 15px', // Slightly larger padding
+                                margin: '0 3px',
+                                fontSize: '0.9em', // Slightly larger font
+                                cursor: 'pointer',
+                                border: '1px solid #777', // Consistent border
+                                backgroundColor: '#444', // Consistent background
+                                color: '#eee',
+                                borderRadius: '4px',
+                                minWidth: '100px' // Give it more width
+                            }}
+                            title="Click to change buy amount" // Add a tooltip
+                        >
+                            {/* Display the current multiplier */}
+                            Buy: {buyMultiplier === 'max' ? 'Max' : `x${buyMultiplier}`}
+                        </button>
+                    </div>
+
+                    {/* --- UPDATED: Upgrades List Container with Scroll --- */}
+                    <div 
+                        className="upgrade-list-container" // Add class name for CSS targeting
+                        style={{ 
+                            maxHeight: '210px', // Limit height (adjust as needed for ~5 items)
+                            overflowY: 'auto',  // Enable vertical scrollbar only when content overflows
+                            display: "flex", 
+                            flexDirection: "column", 
+                            gap: "5px",
+                            paddingRight: '5px' // Add a little padding so scrollbar doesn't overlap content
+                        }}
+                    > 
+                         {/* Filter upgrades based on totalEarnings before mapping */}
+                         {upgrades
+                            .filter(upgrade => totalEarnings >= upgrade.baseCost || upgrade.level > 0)
+                            .map(upgrade => {
+                                // --- Calculate cost and quantity (remains the same) ---
+                                let quantityToBuy = 0;
+                                let currentBulkCost = 0;
+                                let isMaxAffordableZero = false;
+
+                                if (buyMultiplier === 'max') {
+                                    quantityToBuy = calculateMaxAffordable(upgrade, coins);
+                                    currentBulkCost = getBulkUpgradeCost(upgrade, quantityToBuy);
+                                    isMaxAffordableZero = quantityToBuy === 0;
+                                } else {
+                                    quantityToBuy = buyMultiplier;
+                                    currentBulkCost = getBulkUpgradeCost(upgrade, quantityToBuy);
+                                }
+                                const cannotAfford = coins < currentBulkCost || (buyMultiplier === 'max' && isMaxAffordableZero);
+
+                                // --- Calculate Total Effect Gain for Display (Including Prestige Bonus) ---
+                                let effectDisplay = '';
+                                // Get the current prestige bonus multiplier
+                                const currentCpsBonusMultiplier = calculatePrestigeBonus(prestigePoints);
+
+                                if (quantityToBuy > 0) {
+                                    if (upgrade.id === 1) {
+                                        // Clicker effect ALSO gets its own prestige bonus
+                                        const currentClickBonusMultiplier = calculatePrestigeClickBonus(prestigePoints);
+                                        const totalClickIncrease = upgrade.effect * quantityToBuy * currentClickBonusMultiplier;
+                                        // Display click increase rounded to nearest whole number for simplicity
+                                        effectDisplay = `+${Math.round(totalClickIncrease)}/click`;
+                                    } else {
+                                        // Base CPS increase from levels
+                                        const baseCpsIncrease = upgrade.effect * quantityToBuy;
+                                        // Apply the current prestige CPS bonus to the increase
+                                        const totalCpsIncreaseWithBonus = baseCpsIncrease * currentCpsBonusMultiplier;
+                                        effectDisplay = `+${formatNumber(totalCpsIncreaseWithBonus)}/s`;
+                                    }
+                                } else if (buyMultiplier !== 1) {
+                                   effectDisplay = upgrade.id === 1 ? '+0/click' : '+0/s';
+                                } else {
+                                    // Default for x1 buy - show potential gain WITH bonus applied
+                                    if (upgrade.id === 1) {
+                                         const currentClickBonusMultiplier = calculatePrestigeClickBonus(prestigePoints);
+                                         const singleClickIncrease = upgrade.effect * currentClickBonusMultiplier;
+                                         effectDisplay = `+${Math.round(singleClickIncrease)}/click`;
+                                    } else {
+                                        const singleCpsIncreaseWithBonus = upgrade.effect * currentCpsBonusMultiplier;
+                                        effectDisplay = `+${formatNumber(singleCpsIncreaseWithBonus)}/s`;
+                                    }
+                                }
+
+                                // --- Calculate Progress and Style for Buttons ---
+                                let buttonStyle = { // Base style for enabled/base button
+                                    flex: 1,
+                                    margin: '0 0.5rem',
+                                    padding: '0.4em 0.8em',
+                                    fontSize: '0.85em',
+                                    cursor: 'pointer', // Default cursor
+                                    backgroundColor: '#444', // Default background
+                                    // UPDATED: Set desired border color for enabled buttons
+                                    border: '1px solid #1d1d1d', 
+                                    color: '#eee',         // Default text color
+                                    borderRadius: '4px',    // Consistent rounding
+                                    textAlign: 'center',    // Ensure text is centered
+                                };
+
+                                if (cannotAfford) {
+                                    let progress = 0;
+                                    // Calculate progress only if the cost is > 0 and it's not the 'max buy 0' case
+                                    if (currentBulkCost > 0 && !isMaxAffordableZero) {
+                                        progress = Math.min(100, (coins / currentBulkCost) * 100);
+                                    }
+
+                                    // Style for disabled button with progress gradient
+                                    buttonStyle = {
+                                        ...buttonStyle, // Inherit base styles
+                                        cursor: 'not-allowed', // Set cursor for disabled
+                                        background: `linear-gradient(to right, #5a5a5a ${progress}%, #333 ${progress}%)`, // Darker bg for unfilled part
+                                        color: '#aaa', // Dimmed text color for disabled
+                                        // UPDATED: Set desired border color for disabled buttons
+                                        border: '1px solid #1d1d1d', 
+                                    };
+                                }
+
+                                return (
+                                    <div key={upgrade.id} className="upgrade-item">
+                                        <div style={{ display: "flex", alignItems: "center", padding: '5px 0' }}>
+                                            {/* Upgrade Name & Level */}
+                                            <div style={{ width: "100px", textAlign: "left", fontSize: '0.9em' }}>
+                                                {upgrade.name} ({upgrade.level})
+                                            </div>
+                                            {/* Buy Button - Apply dynamic style */}
+                                            <button
+                                                onClick={() => buyUpgrade(upgrade.id)}
+                                                disabled={cannotAfford}
+                                                style={buttonStyle} // Apply the calculated style object
+                                                title={buyMultiplier === 'max' ? `Buy Max (${quantityToBuy})` : `Buy ${quantityToBuy}`}
+                                            >
+                                                Buy {buyMultiplier === 'max' ? `Max (${quantityToBuy})` : `x${quantityToBuy}`}: ${formatNumber(currentBulkCost)}
+                    </button>
+                                            {/* Effect Display */}
+                                            <div style={{ width: "100px", textAlign: "right", fontSize: '0.9em' }}>
+                                                {effectDisplay}
+                                            </div>
+                </div>
             </div>
+                                );
+                            })}
+                    </div> {/* --- END: Upgrades List Container --- */}
+                    
+                    {/* Prestige Button */}
+                    <button 
+                        onClick={prestigeGame} 
+                        disabled={coins < PRESTIGE_REQUIREMENT || calculatePrestigeGain(coins) <= 0}
+                        style={{ 
+                            marginTop: "20px",
+                            marginRight: "10px",
+                            backgroundColor: "#6a0dad", 
+                            opacity: (coins < PRESTIGE_REQUIREMENT || calculatePrestigeGain(coins) <= 0) ? 0.6 : 1,
+                            width: 'auto' // Let button size naturally
+                        }}
+                    >
+                        Prestige (Req: ${formatNumber(PRESTIGE_REQUIREMENT)})
+                    </button>
 
-        </div> // End of main flex container
+                    {/* Reset Button */}
+                    <button 
+                        onClick={resetGame} 
+                        style={{ 
+                            marginTop: "10px", 
+                            marginLeft: "10px",
+                            backgroundColor: "#ff4d4d",
+                            width: 'auto' // Let button size naturally
+                        }}
+                    >
+                        Hard Reset Game
+                    </button>
+                </div> {/* --- END: Middle Column --- */}
+
+                {/* --- Right Column: Charts --- */}
+                <div style={{ 
+                    flex: 2, 
+                    minWidth: '320px', // Optional: Slightly increase minWidth
+                    display: 'flex',        
+                    flexDirection: 'column' 
+                }}> 
+                    <EarningsChart history={coinHistory} />
+                    <UpgradeDistributionChart upgrades={upgrades} />
+                </div>
+
+            </div> {/* End of main flex container */}
+        </>
     );
 }
 
