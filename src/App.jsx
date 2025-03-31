@@ -2,27 +2,94 @@ import { useState, useEffect, useRef } from "react";
 
 import "./App.css";
 
+// --- Helper Functions (Moved outside the component) ---
+const PRESTIGE_REQUIREMENT = 1e6; // 1 Million coins needed to prestige
+
+// Calculates how many prestige points you would gain
+const calculatePrestigeGain = (currentCoins) => {
+    if (currentCoins < PRESTIGE_REQUIREMENT) return 0;
+    return Math.floor(5 * Math.cbrt(currentCoins / 1e6)); 
+};
+
+// Calculates the CPS bonus multiplier from prestige points
+const calculatePrestigeBonus = (points) => {
+    return Math.pow(1.02, points); 
+};
+
+// Calculates the base CPS sum from all non-clicker upgrades
+const calculateBaseCPS = (currentUpgrades) => {
+    return currentUpgrades.reduce((sum, upgrade) => {
+        if (upgrade.id === 1) return sum; 
+        return sum + (upgrade.effect * upgrade.level);
+    }, 0.1); 
+};
+
+// Calculates the final CPS including the prestige bonus
+const calculateTotalCPS = (currentUpgrades, currentPrestigePoints) => {
+    const baseCPS = calculateBaseCPS(currentUpgrades);
+    const bonus = calculatePrestigeBonus(currentPrestigePoints);
+    return baseCPS * bonus;
+};
+
+// Format large numbers with prefixes (K, M, B, etc.) - Moved outside as well for consistency
+const formatNumber = (num) => {
+    if (isNaN(num) || num === undefined || num === null) return "0.00";
+    
+    const prefixes = ["", "K", "M", "B", "T", "Q"];
+    let prefix = 0;
+    let value = num;
+    value = Number(value);
+    
+    while (value >= 1000 && prefix < prefixes.length - 1) {
+        value /= 1000;
+        prefix++;
+    }
+    
+    return `${value.toFixed(2)} ${prefixes[prefix]}`;
+};
+
 function App() {
     // Initialize game state from localStorage or use defaults
     const [gameState, setGameState] = useState(() => {
         const savedGame = localStorage.getItem("idleGameSave");
-        if (savedGame) {
-            return JSON.parse(savedGame);
-        }
-        return {
+        let initialState = {
             coins: 0,
-            coinsPerSecond: 0.1,
+            coinsPerSecond: 0, // Will be calculated based on upgrades and prestige
             lastUpdate: Date.now(),
             upgrades: [
-                { id: 1, name: "Clicker", level: 0, baseCost: 10, effect: 1 },
-                { id: 2, name: "Farm", level: 0, baseCost: 100, effect: 5 },
+                { id: 1, name: "Clicker", level: 0, baseCost: 10, effect: 1 }, // Effect for Clicker is per click
+                { id: 2, name: "Farm", level: 0, baseCost: 100, effect: 5 }, // Effect for others is base CPS
                 { id: 3, name: "Mine", level: 0, baseCost: 1100, effect: 50 },
                 { id: 4, name: "Factory", level: 0, baseCost: 12000, effect: 500 }
-            ]
+            ],
+            prestigePoints: 0 // Added prestige points
         };
+
+        if (savedGame) {
+            try {
+                const loadedState = JSON.parse(savedGame);
+                // Merge saved state with default structure to handle potential missing keys
+                initialState = {
+                    ...initialState,
+                    ...loadedState,
+                    // Ensure upgrades structure is preserved if loading older save
+                    upgrades: loadedState.upgrades || initialState.upgrades,
+                    // Ensure prestigePoints exist
+                    prestigePoints: loadedState.prestigePoints || 0
+                };
+            } catch (error) {
+                console.error("Error loading saved game:", error);
+                localStorage.removeItem("idleGameSave"); // Clear corrupted save
+            }
+        }
+        
+        // Calculate initial CPS based on loaded state
+        initialState.coinsPerSecond = calculateTotalCPS(initialState.upgrades, initialState.prestigePoints);
+
+        return initialState;
     });
 
-    const { coins, coinsPerSecond, upgrades } = gameState;
+    const { coins, coinsPerSecond, upgrades, prestigePoints } = gameState;
 
     // Add at the top of your component
     const [isPurchasing, setIsPurchasing] = useState(false);
@@ -30,26 +97,6 @@ function App() {
     // Add state for click animations
     const [clickEffects, setClickEffects] = useState([]);
     const coinRef = useRef(null);
-
-    // Format large numbers with prefixes (K, M, B, etc.)
-    const formatNumber = (num) => {
-        // Check for NaN, undefined, or null
-        if (isNaN(num) || num === undefined || num === null) return "0.00";
-        
-        const prefixes = ["", "K", "M", "B", "T", "Q"];
-        let prefix = 0;
-        let value = num;
-        
-        // Ensure value is a number
-        value = Number(value);
-        
-        while (value >= 1000 && prefix < prefixes.length - 1) {
-            value /= 1000;
-            prefix++;
-        }
-        
-        return `${value.toFixed(2)} ${prefixes[prefix]}`;
-    };
 
     // Game loop - update coins with precision handling
     useEffect(() => {
@@ -129,36 +176,34 @@ function App() {
 
     // Purchase an upgrade with consistent number handling
     const buyUpgrade = (id) => {
-        if (isPurchasing) return; // Prevent multiple purchase attempts
-        
+        if (isPurchasing) return; 
         setIsPurchasing(true);
         
         setGameState(prev => {
-            // Prevent any parallel execution issues - grab everything we need
             const currentCoins = Number(prev.coins.toFixed(10));
-            const upgrade = prev.upgrades.find(u => u.id === id);
-            const cost = getUpgradeCost(upgrade);
-            
-            // Use exact same check as button
+            const upgradeIndex = prev.upgrades.findIndex(u => u.id === id);
+            if (upgradeIndex === -1) return prev; // Should not happen
+
+            const upgradeToBuy = prev.upgrades[upgradeIndex];
+            const cost = getUpgradeCost(upgradeToBuy);
+
             if (Math.floor(currentCoins) < cost) {
                 console.log(`Purchase failed: Have ${currentCoins}, need ${cost}`);
+                setIsPurchasing(false); // Reset purchase lock if failed
                 return prev;
             }
-            
-            // Create a new upgrades array to avoid mutation issues
-            const newUpgrades = prev.upgrades.map(u => 
-                u.id === id ? {...u, level: u.level + 1} : u
+
+            // Create a new upgrades array with the updated level
+            const newUpgrades = prev.upgrades.map((u, index) => 
+                index === upgradeIndex ? {...u, level: u.level + 1} : u
             );
-            
-            // Calculate new CPS
-            let cpsBonus = upgrade.effect;
-            if (id === 1) cpsBonus = upgrade.effect / 10;
-            
-            const newCPS = Number((prev.coinsPerSecond + cpsBonus).toFixed(10));
+
             const newCoins = Number((currentCoins - cost).toFixed(10));
-            
-            console.log(`Purchase successful: ${upgrade.name} for ${cost}. New balance: ${newCoins}`);
-            
+            // Recalculate total CPS based on new upgrade levels and existing prestige
+            const newCPS = calculateTotalCPS(newUpgrades, prev.prestigePoints); 
+
+            console.log(`Purchase successful: ${upgradeToBuy.name} for ${cost}. New balance: ${newCoins}`);
+
             return {
                 ...prev,
                 coins: newCoins,
@@ -166,9 +211,8 @@ function App() {
                 upgrades: newUpgrades
             };
         });
-        
-        // Reset after a short delay
-        setTimeout(() => setIsPurchasing(false), 250);
+
+        setTimeout(() => setIsPurchasing(false), 50); // Reduced delay slightly
     };
 
     // Enhanced click handler with animations
@@ -214,17 +258,61 @@ function App() {
 
     // Reset game
     const resetGame = () => {
+        if (!confirm("Are you sure you want to HARD reset? This will erase ALL progress, including Prestige Points!")) {
+            return;
+        }
         localStorage.removeItem("idleGameSave");
-        setGameState({
+        
+        // Reset to the absolute initial state using the top-level helper
+        const initialState = {
             coins: 0,
-            coinsPerSecond: 0.1,
+            coinsPerSecond: 0, // Will be recalculated below
             lastUpdate: Date.now(),
             upgrades: [
                 { id: 1, name: "Clicker", level: 0, baseCost: 10, effect: 1 },
                 { id: 2, name: "Farm", level: 0, baseCost: 100, effect: 5 },
                 { id: 3, name: "Mine", level: 0, baseCost: 1100, effect: 50 },
                 { id: 4, name: "Factory", level: 0, baseCost: 12000, effect: 500 }
-            ]
+            ],
+            prestigePoints: 0 
+        };
+        // Ensure initial CPS is correctly set after reset using the globally defined function
+        initialState.coinsPerSecond = calculateTotalCPS(initialState.upgrades, initialState.prestigePoints); 
+        setGameState(initialState);
+    };
+
+    // --- Prestige Function ---
+    const prestigeGame = () => {
+        const gain = calculatePrestigeGain(coins);
+        
+        if (coins < PRESTIGE_REQUIREMENT || gain <= 0) {
+            alert(`You need at least $${formatNumber(PRESTIGE_REQUIREMENT)} to prestige for points.`);
+            return;
+        }
+
+        if (!confirm(`Are you sure you want to prestige? You will gain ${gain} Prestige Points, boosting future CPS, but reset your current coins and upgrades.`)) {
+            return;
+        }
+
+        setGameState(prev => {
+            const newTotalPrestigePoints = prev.prestigePoints + gain;
+            
+            // Reset upgrades to level 0
+            const initialUpgrades = prev.upgrades.map(u => ({ ...u, level: 0 }));
+            
+            // Calculate the new CPS with reset upgrades but new prestige bonus
+            const newCPS = calculateTotalCPS(initialUpgrades, newTotalPrestigePoints);
+
+            console.log(`Prestiged! Gained ${gain} points. Total: ${newTotalPrestigePoints}`);
+
+            return {
+                ...prev, // Keep lastUpdate potentially, or reset it? Let's reset for consistency.
+                coins: 0,
+                coinsPerSecond: newCPS,
+                upgrades: initialUpgrades,
+                prestigePoints: newTotalPrestigePoints,
+                lastUpdate: Date.now() 
+            };
         });
     };
 
@@ -261,6 +349,19 @@ function App() {
                 per second: ${formatNumber(coinsPerSecond)}
             </p>
             
+            {/* Prestige Info Display */}
+            <div style={{ margin: "10px 0", padding: "10px", border: "1px solid #555", borderRadius: "5px" }}>
+                <p style={{ margin: 0 }}>Prestige Points: {prestigePoints}</p>
+                <p style={{ margin: '5px 0 0 0' }}>
+                    Current CPS Bonus: x{calculatePrestigeBonus(prestigePoints).toFixed(2)}
+                </p>
+                {coins >= PRESTIGE_REQUIREMENT / 10 && ( // Show potential gain earlier
+                     <p style={{ margin: '5px 0 0 0', opacity: 0.8 }}>
+                         Prestige Now Gain: +{calculatePrestigeGain(coins)} points
+                     </p>
+                )}
+            </div>
+            
             <div style={{ display: "flex", flexDirection: "column", gap: "10px" }}>
                 {upgrades.map(upgrade => (
                     <div key={upgrade.id} style={{ display: "flex", alignItems: "center" }}>
@@ -285,11 +386,25 @@ function App() {
                     </div>
                 ))}
                 
+                {/* Prestige Button */}
+                <button 
+                    onClick={prestigeGame} 
+                    disabled={coins < PRESTIGE_REQUIREMENT || calculatePrestigeGain(coins) <= 0}
+                    style={{ 
+                        marginTop: "20px", 
+                        backgroundColor: "#6a0dad", // Purple color for prestige
+                        opacity: (coins < PRESTIGE_REQUIREMENT || calculatePrestigeGain(coins) <= 0) ? 0.6 : 1
+                    }}
+                >
+                    Prestige (Req: ${formatNumber(PRESTIGE_REQUIREMENT)})
+                </button>
+
+                {/* Reset Button */}
                 <button 
                     onClick={resetGame} 
-                    style={{ marginTop: "20px", backgroundColor: "#ff4d4d" }}
+                    style={{ marginTop: "10px", backgroundColor: "#ff4d4d" }} // Adjusted margin
                 >
-                    Reset Game
+                    Hard Reset Game
                 </button>
             </div>
         </>
