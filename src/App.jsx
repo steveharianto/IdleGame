@@ -368,32 +368,36 @@ function App() {
             alert(`You need at least $${formatNumber(PRESTIGE_REQUIREMENT)} to prestige for points.`);
             return;
         }
-
+    
         if (!confirm(`Are you sure you want to prestige? You will gain ${gain} Prestige Points, boosting future CPS, but reset your current coins and upgrades.`)) {
             return;
         }
-
+    
         setGameState(prev => {
             const newTotalPrestigePoints = prev.prestigePoints + gain;
-            // Reset using the full list
+            // Reset upgrades using the full list
             const initialUpgrades = ALL_UPGRADES.map(u => ({ ...u, level: 0 }));
+            // Calculate the new CPS with reset upgrades but new prestige bonus
             const newCPS = calculateTotalCPS(initialUpgrades, newTotalPrestigePoints);
-
+    
             console.log(`Prestiged! Gained ${gain} points. Total: ${newTotalPrestigePoints}`);
-
+    
             return {
-                ...prev, 
-                coins: 0,
-                coinsPerSecond: newCPS,
-                upgrades: initialUpgrades, // Set the reset full list
-                prestigePoints: newTotalPrestigePoints,
-                lastUpdate: Date.now(),
-                prestigeCount: prev.prestigeCount + 1,
-                coinHistory: [{ timestamp: Date.now(), coins: 0 }],
-                 // Keep other stats like totalClicks, manualEarnings, highestCoins, startTime
+                ...prev, // Keep previous state as base
+                coins: 0, // Reset current coins
+                coinsPerSecond: newCPS, // Set new CPS based on prestige
+                upgrades: initialUpgrades, // Set reset upgrades
+                prestigePoints: newTotalPrestigePoints, // Update prestige points
+                lastUpdate: Date.now(), // Update timestamp
+                prestigeCount: prev.prestigeCount + 1, // Increment prestige count
+                // --- Persisted Stats ---
+                // totalEarnings continues from its current value (not reset)
+                totalEarnings: prev.totalEarnings, 
+                // coinHistory is NOT reset, so the chart continues
+                coinHistory: prev.coinHistory, 
+                // Keep other persistent stats
                  totalClicks: prev.totalClicks, 
                  manualEarnings: prev.manualEarnings, 
-                 totalEarnings: 0, // Total earnings reset implicitly via coins
                  startTime: prev.startTime, 
                  highestCoins: prev.highestCoins, 
             };
