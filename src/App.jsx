@@ -51,6 +51,53 @@ const formatNumber = (num) => {
     return `${value.toFixed(2)} ${prefixes[prefix]}`;
 };
 
+// --- NEW: Bulk Buy Helper Functions ---
+
+// Calculates the total cost of buying a specific quantity of an upgrade
+const getBulkUpgradeCost = (upgrade, quantity) => {
+    if (quantity <= 0) return 0;
+    let totalCost = 0;
+    const baseCost = upgrade.baseCost;
+    const multiplier = 1.15; // Defined cost multiplier
+    const currentLevel = upgrade.level;
+
+    for (let i = 0; i < quantity; i++) {
+        const levelToCalc = currentLevel + i;
+        totalCost += Math.floor(baseCost * Math.pow(multiplier, levelToCalc));
+    }
+    return totalCost;
+};
+
+// Calculates the maximum quantity of an upgrade affordable with current coins
+const calculateMaxAffordable = (upgrade, currentCoins) => {
+    let quantity = 0;
+    let totalCost = 0;
+    const baseCost = upgrade.baseCost;
+    const multiplier = 1.15;
+    const currentLevel = upgrade.level;
+
+    // Use Number.MAX_SAFE_INTEGER as a safety break for the loop
+    for (let i = 0; i < Number.MAX_SAFE_INTEGER; i++) {
+        const levelToCalc = currentLevel + i;
+        const nextLevelCost = Math.floor(baseCost * Math.pow(multiplier, levelToCalc));
+
+        if (totalCost + nextLevelCost <= currentCoins) {
+            totalCost += nextLevelCost;
+            quantity++;
+        } else {
+            break; // Cannot afford the next level
+        }
+    }
+    return quantity;
+};
+
+// --- NEW: Calculates the Click bonus multiplier from prestige points ---
+const calculatePrestigeClickBonus = (points) => {
+    // Example: Each point gives a 1.5% boost to click value, multiplicative
+    // Adjust the 1.015 value to balance clicking vs. idle
+    return Math.pow(1.015, points);
+};
+
 // --- FULL UPGRADE LIST ---
 const ALL_UPGRADES = [
     { id: 1, name: "Clicker", level: 0, baseCost: 10, effect: 1 }, // Effect is per click
@@ -144,6 +191,12 @@ function App() {
     // Add state for click animations
     const [clickEffects, setClickEffects] = useState([]);
     const coinRef = useRef(null);
+
+    // --- NEW: State for Buy Multiplier ---
+    const [buyMultiplier, setBuyMultiplier] = useState(1); // Default to buying 1
+
+    // --- Define multiplier options ---
+    const multiplierOptions = [1, 10, 100, 'max'];
 
     // Game loop - update coins with precision handling
     useEffect(() => {
@@ -249,35 +302,51 @@ function App() {
         return Math.floor(upgrade.baseCost * Math.pow(1.15, upgrade.level));
     };
 
-    // Purchase an upgrade with consistent number handling
+    // Purchase an upgrade with consistent number handling AND bulk buying
     const buyUpgrade = (id) => {
-        if (isPurchasing) return; 
-        setIsPurchasing(true);
-        
+        // No need for isPurchasing lock for this logic if state updates are handled correctly
+        // if (isPurchasing) return;
+        // setIsPurchasing(true);
+
         setGameState(prev => {
             const currentCoins = Number(prev.coins.toFixed(10));
             const upgradeIndex = prev.upgrades.findIndex(u => u.id === id);
-            if (upgradeIndex === -1) return prev; // Should not happen
+            if (upgradeIndex === -1) return prev;
 
             const upgradeToBuy = prev.upgrades[upgradeIndex];
-            const cost = getUpgradeCost(upgradeToBuy);
 
-            if (Math.floor(currentCoins) < cost) {
-                console.log(`Purchase failed: Have ${currentCoins}, need ${cost}`);
-                setIsPurchasing(false); // Reset purchase lock if failed
-                return prev;
+            // --- Determine quantity and cost based on the multiplier ---
+            let quantityToBuy = 0;
+            let totalCost = 0;
+
+            if (buyMultiplier === 'max') {
+                quantityToBuy = calculateMaxAffordable(upgradeToBuy, currentCoins);
+                totalCost = getBulkUpgradeCost(upgradeToBuy, quantityToBuy);
+            } else {
+                quantityToBuy = Number(buyMultiplier); // Ensure it's a number
+                totalCost = getBulkUpgradeCost(upgradeToBuy, quantityToBuy);
             }
 
+            // --- Check affordability (redundant for 'max', safety for others) ---
+            if (quantityToBuy <= 0 || currentCoins < totalCost) {
+                console.log(`Purchase failed: Have ${currentCoins}, need ${totalCost} for ${quantityToBuy} levels.`);
+                // setIsPurchasing(false);
+                return prev; // Cannot afford or buy 0
+            }
+
+            // --- Perform the update ---
+            const newLevel = upgradeToBuy.level + quantityToBuy;
+
             // Create a new upgrades array with the updated level
-            const newUpgrades = prev.upgrades.map((u, index) => 
-                index === upgradeIndex ? {...u, level: u.level + 1} : u
+            const newUpgrades = prev.upgrades.map((u, index) =>
+                index === upgradeIndex ? {...u, level: newLevel } : u
             );
 
-            const newCoins = Number((currentCoins - cost).toFixed(10));
-            // Recalculate total CPS based on new upgrade levels and existing prestige
-            const newCPS = calculateTotalCPS(newUpgrades, prev.prestigePoints); 
+            const newCoins = Number((currentCoins - totalCost).toFixed(10));
+            // Recalculate total CPS based on *new* upgrade levels and existing prestige
+            const newCPS = calculateTotalCPS(newUpgrades, prev.prestigePoints);
 
-            console.log(`Purchase successful: ${upgradeToBuy.name} for ${cost}. New balance: ${newCoins}`);
+            console.log(`Purchase successful: ${upgradeToBuy.name} x${quantityToBuy} for ${totalCost}. New balance: ${newCoins}. New level: ${newLevel}`);
 
             return {
                 ...prev,
@@ -287,56 +356,59 @@ function App() {
             };
         });
 
-        setTimeout(() => setIsPurchasing(false), 50); // Reduced delay slightly
+        // setTimeout(() => setIsPurchasing(false), 50); // Can likely remove the purchasing lock
     };
 
-    // Enhanced click handler with animations
+    // Enhanced click handler with animations AND prestige bonus
     const handleClick = (event) => {
         // Get click position relative to the element
         const rect = event.currentTarget.getBoundingClientRect();
         const x = event.clientX - rect.left;
         const y = event.clientY - rect.top;
-        
-        // Calculate click value
+
+        // --- Calculate click value with Prestige Bonus ---
         const clickerLevel = upgrades.find(u => u.id === 1).level;
-        const clickValue = 1 + clickerLevel;
-        
-        // Add floating text effect
+        const baseClickValue = 1 + clickerLevel;
+        const prestigeClickMultiplier = calculatePrestigeClickBonus(prestigePoints);
+        const clickValue = baseClickValue * prestigeClickMultiplier; // Keep the precise value for calculations
+
+        // --- Create floating text effect with ROUNDED value ---
         const newEffect = {
             id: Date.now(),
             x,
             y,
-            value: clickValue
+            value: Math.round(clickValue) // Use the rounded value *only* for display
         };
-        
+
         setClickEffects(prev => [...prev, newEffect]);
-        
+
         // Remove effect after animation completes
         setTimeout(() => {
             setClickEffects(prev => prev.filter(effect => effect.id !== newEffect.id));
         }, 1000);
-        
+
         // Add pulse animation to the coin amount
         if (coinRef.current) {
             coinRef.current.classList.remove('pulse-animation');
-            // Force a reflow to restart the animation
-            void coinRef.current.offsetWidth;
+            void coinRef.current.offsetWidth; // Force reflow
             coinRef.current.classList.add('pulse-animation');
         }
-        
-        // Update coins AND stats
+
+        // --- Update coins AND stats using the PRECISE clickValue ---
         setGameState(prev => {
-            const newManualEarnings = prev.manualEarnings + clickValue;
-            const newCoins = prev.coins + clickValue; // Direct addition for click is fine
+            // Recalculate precise value inside here for safety
+            const currentPrestigeClickMultiplier = calculatePrestigeClickBonus(prev.prestigePoints);
+            const currentPreciseClickValue = (1 + (prev.upgrades.find(u => u.id === 1)?.level || 0)) * currentPrestigeClickMultiplier;
+
+            const newManualEarnings = prev.manualEarnings + currentPreciseClickValue;
+            const newCoins = prev.coins + currentPreciseClickValue;
             return {
                 ...prev,
                 coins: newCoins,
                 totalClicks: prev.totalClicks + 1,
                 manualEarnings: newManualEarnings,
-                // Also update total earnings from clicks
-                totalEarnings: prev.totalEarnings + clickValue,
-                // Update highest coins if click makes it the highest
-                highestCoins: Math.max(prev.highestCoins, newCoins) 
+                totalEarnings: prev.totalEarnings + currentPreciseClickValue,
+                highestCoins: Math.max(prev.highestCoins, newCoins)
             };
         });
     };
@@ -404,6 +476,13 @@ function App() {
         });
     };
 
+    // --- NEW: Function to toggle the buy multiplier ---
+    const toggleBuyMultiplier = () => {
+        const currentIndex = multiplierOptions.indexOf(buyMultiplier);
+        const nextIndex = (currentIndex + 1) % multiplierOptions.length; // Wrap around
+        setBuyMultiplier(multiplierOptions[nextIndex]);
+    };
+
     return (
         // Main container - Increase the gap
         <div style={{ display: 'flex', gap: '2.5rem', alignItems: 'flex-start' }}> {/* Increased gap from 1.5rem to 2.5rem */}
@@ -454,18 +533,41 @@ function App() {
                     per second: ${formatNumber(coinsPerSecond)}
                 </p>
 
-                {/* Prestige Info Display */}
-                <div style={{ margin: "0 0 1rem 0", padding: "10px", border: "1px solid #555", borderRadius: "5px", textAlign: 'left' }}> {/* Adjusted margin and alignment */}
+                {/* Prestige Info Display - Added Click Bonus */}
+                <div style={{ margin: "0 0 1rem 0", padding: "10px", border: "1px solid #555", borderRadius: "5px", textAlign: 'left' }}>
                     <p style={{ margin: 0, fontWeight: 'bold' }}>Prestige</p>
                     <p style={{ margin: '5px 0 0 0' }}>Points: {prestigePoints}</p>
                     <p style={{ margin: '5px 0 0 0' }}>
-                        CPS Bonus: x{calculatePrestigeBonus(prestigePoints).toFixed(2)}
+                        {/* Display both bonuses */}
+                        CPS Bonus: x{calculatePrestigeBonus(prestigePoints).toFixed(2)} | Click Bonus: x{calculatePrestigeClickBonus(prestigePoints).toFixed(2)}
                     </p>
-                    {coins >= PRESTIGE_REQUIREMENT / 10 && ( 
+                    {coins >= PRESTIGE_REQUIREMENT / 10 && (
                          <p style={{ margin: '5px 0 0 0', opacity: 0.8 }}>
                              Gain on Prestige: +{calculatePrestigeGain(coins)} points
                          </p>
                     )}
+                </div>
+
+                {/* --- UPDATED: Single Buy Multiplier Toggle Button --- */}
+                <div style={{ marginBottom: '1rem', textAlign: 'center' }}>
+                    <button
+                        onClick={toggleBuyMultiplier} // Use the new toggle function
+                        style={{
+                            padding: '8px 15px', // Slightly larger padding
+                            margin: '0 3px',
+                            fontSize: '0.9em', // Slightly larger font
+                            cursor: 'pointer',
+                            border: '1px solid #777', // Consistent border
+                            backgroundColor: '#444', // Consistent background
+                            color: '#eee',
+                            borderRadius: '4px',
+                            minWidth: '100px' // Give it more width
+                        }}
+                        title="Click to change buy amount" // Add a tooltip
+                    >
+                        {/* Display the current multiplier */}
+                        Buy: {buyMultiplier === 'max' ? 'Max' : `x${buyMultiplier}`}
+                    </button>
                 </div>
 
                 {/* Upgrades List and Buttons */}
@@ -473,34 +575,54 @@ function App() {
                      {/* Filter upgrades based on totalEarnings before mapping */}
                      {upgrades
                         .filter(upgrade => totalEarnings >= upgrade.baseCost || upgrade.level > 0) // Show if affordable OR already bought
-                        .map(upgrade => (
-                         // Add a wrapper div for animation
-                         <div key={upgrade.id} className="upgrade-item"> 
-                            <div style={{ display: "flex", alignItems: "center", padding: '5px 0' }}> {/* Inner flex container */}
-                                <div style={{ width: "100px", textAlign: "left", fontSize: '0.9em' }}> {/* Slightly smaller font */}
-                                    {upgrade.name} ({upgrade.level})
-                                </div>
-                                <button 
-                                    onClick={() => buyUpgrade(upgrade.id)} 
-                                    disabled={Math.floor(coins) < getUpgradeCost(upgrade)}
-                                    style={{ 
-                                        flex: 1,
-                                        opacity: Math.floor(coins) < getUpgradeCost(upgrade) ? 0.6 : 1,
-                                        margin: '0 0.5rem',
-                                        padding: '0.4em 0.8em', // Slightly smaller padding
-                                        fontSize: '0.85em' // Slightly smaller font
-                                    }}
-                                >
-                                    Buy: ${formatNumber(getUpgradeCost(upgrade))}
-                                </button>
-                                <div style={{ width: "100px", textAlign: "right", fontSize: '0.9em' }}> {/* Slightly smaller font */}
-                                    {upgrade.id === 1 ? 
-                                        `+${upgrade.effect}/click` : 
-                                        `+${formatNumber(upgrade.effect)}/s`}
-                                </div>
-                            </div>
-                         </div> // End animation wrapper
-                     ))}
+                        .map(upgrade => {
+                            // --- Calculate cost and quantity for THIS upgrade based on multiplier ---
+                            let quantityToBuy = 0;
+                            let currentBulkCost = 0;
+                            let isMaxAffordableZero = false;
+
+                            if (buyMultiplier === 'max') {
+                                quantityToBuy = calculateMaxAffordable(upgrade, coins);
+                                currentBulkCost = getBulkUpgradeCost(upgrade, quantityToBuy);
+                                isMaxAffordableZero = quantityToBuy === 0;
+                            } else {
+                                quantityToBuy = buyMultiplier; // Use the number 1, 10, or 100
+                                currentBulkCost = getBulkUpgradeCost(upgrade, quantityToBuy);
+                            }
+                            
+                            // Determine if the button should be disabled
+                            const cannotAfford = coins < currentBulkCost || (buyMultiplier === 'max' && isMaxAffordableZero);
+
+                            return (
+                                <div key={upgrade.id} className="upgrade-item"> 
+                                    <div style={{ display: "flex", alignItems: "center", padding: '5px 0' }}> {/* Inner flex container */}
+                                        <div style={{ width: "100px", textAlign: "left", fontSize: '0.9em' }}> {/* Slightly smaller font */}
+                                            {upgrade.name} ({upgrade.level})
+                                        </div>
+                                        <button 
+                                            onClick={() => buyUpgrade(upgrade.id)} 
+                                            disabled={cannotAfford}
+                                            style={{ 
+                                                flex: 1,
+                                                opacity: cannotAfford ? 0.6 : 1,
+                                                margin: '0 0.5rem',
+                                                padding: '0.4em 0.8em', // Slightly smaller padding
+                                                fontSize: '0.85em' // Slightly smaller font
+                                            }}
+                                            title={buyMultiplier === 'max' ? `Buy Max (${quantityToBuy})` : `Buy ${quantityToBuy}`} // Tooltip
+                                        >
+                                            {/* Display Buy xQuantity: $Cost */}
+                                            Buy {buyMultiplier === 'max' ? `Max (${quantityToBuy})` : `x${quantityToBuy}`}: ${formatNumber(currentBulkCost)}
+                                        </button>
+                                        <div style={{ width: "100px", textAlign: "right", fontSize: '0.9em' }}> {/* Slightly smaller font */}
+                                            {upgrade.id === 1 ? 
+                                                `+${upgrade.effect}/click` : 
+                                                `+${formatNumber(upgrade.effect)}/s`}
+                                        </div>
+                                    </div>
+                                 </div> // End animation wrapper
+                            );
+                        })}
                     
                     {/* Prestige Button */}
                     <button 
