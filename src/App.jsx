@@ -570,8 +570,18 @@ function App() {
                     </button>
                 </div>
 
-                {/* Upgrades List and Buttons */}
-                <div style={{ display: "flex", flexDirection: "column", gap: "5px" }}> {/* Reduced gap slightly */}
+                {/* --- UPDATED: Upgrades List Container with Scroll --- */}
+                <div 
+                    className="upgrade-list-container" // Add class name for CSS targeting
+                    style={{ 
+                        maxHeight: '210px', // Limit height (adjust as needed for ~5 items)
+                        overflowY: 'auto',  // Enable vertical scrollbar only when content overflows
+                        display: "flex", 
+                        flexDirection: "column", 
+                        gap: "5px",
+                        paddingRight: '5px' // Add a little padding so scrollbar doesn't overlap content
+                    }}
+                > 
                      {/* Filter upgrades based on totalEarnings before mapping */}
                      {upgrades
                         .filter(upgrade => totalEarnings >= upgrade.baseCost || upgrade.level > 0)
@@ -624,6 +634,38 @@ function App() {
                                 }
                             }
 
+                            // --- Calculate Progress and Style for Buttons ---
+                            let buttonStyle = { // Base style for enabled/base button
+                                flex: 1,
+                                margin: '0 0.5rem',
+                                padding: '0.4em 0.8em',
+                                fontSize: '0.85em',
+                                cursor: 'pointer', // Default cursor
+                                backgroundColor: '#444', // Default background
+                                // UPDATED: Set desired border color for enabled buttons
+                                border: '1px solid #1d1d1d', 
+                                color: '#eee',         // Default text color
+                                borderRadius: '4px',    // Consistent rounding
+                                textAlign: 'center',    // Ensure text is centered
+                            };
+
+                            if (cannotAfford) {
+                                let progress = 0;
+                                // Calculate progress only if the cost is > 0 and it's not the 'max buy 0' case
+                                if (currentBulkCost > 0 && !isMaxAffordableZero) {
+                                    progress = Math.min(100, (coins / currentBulkCost) * 100);
+                                }
+
+                                // Style for disabled button with progress gradient
+                                buttonStyle = {
+                                    ...buttonStyle, // Inherit base styles
+                                    cursor: 'not-allowed', // Set cursor for disabled
+                                    background: `linear-gradient(to right, #5a5a5a ${progress}%, #333 ${progress}%)`, // Darker bg for unfilled part
+                                    color: '#aaa', // Dimmed text color for disabled
+                                    // UPDATED: Set desired border color for disabled buttons
+                                    border: '1px solid #1d1d1d', 
+                                };
+                            }
 
                             return (
                                 <div key={upgrade.id} className="upgrade-item">
@@ -632,57 +674,53 @@ function App() {
                                         <div style={{ width: "100px", textAlign: "left", fontSize: '0.9em' }}>
                                             {upgrade.name} ({upgrade.level})
                                         </div>
-                                        {/* Buy Button */}
-                                        <button 
-                                            onClick={() => buyUpgrade(upgrade.id)} 
+                                        {/* Buy Button - Apply dynamic style */}
+                                        <button
+                                            onClick={() => buyUpgrade(upgrade.id)}
                                             disabled={cannotAfford}
-                                            style={{ 
-                                                flex: 1,
-                                                opacity: cannotAfford ? 0.6 : 1,
-                                                margin: '0 0.5rem',
-                                                padding: '0.4em 0.8em', // Slightly smaller padding
-                                                fontSize: '0.85em' // Slightly smaller font
-                                            }}
-                                            title={buyMultiplier === 'max' ? `Buy Max (${quantityToBuy})` : `Buy ${quantityToBuy}`} 
+                                            style={buttonStyle} // Apply the calculated style object
+                                            title={buyMultiplier === 'max' ? `Buy Max (${quantityToBuy})` : `Buy ${quantityToBuy}`}
                                         >
                                             Buy {buyMultiplier === 'max' ? `Max (${quantityToBuy})` : `x${quantityToBuy}`}: ${formatNumber(currentBulkCost)}
-                                        </button>
-                                        {/* UPDATED Effect Display */}
+                    </button>
+                                        {/* Effect Display */}
                                         <div style={{ width: "100px", textAlign: "right", fontSize: '0.9em' }}>
                                             {effectDisplay}
                                         </div>
-                                    </div>
-                                 </div> 
-                            );
-                        })}
-                    
-                    {/* Prestige Button */}
-                    <button 
-                        onClick={prestigeGame} 
-                        disabled={coins < PRESTIGE_REQUIREMENT || calculatePrestigeGain(coins) <= 0}
-                        style={{ 
-                            marginTop: "20px", 
-                            backgroundColor: "#6a0dad", 
-                            opacity: (coins < PRESTIGE_REQUIREMENT || calculatePrestigeGain(coins) <= 0) ? 0.6 : 1,
-                            width: 'auto' // Let button size naturally
-                        }}
-                    >
-                        Prestige (Req: ${formatNumber(PRESTIGE_REQUIREMENT)})
-                    </button>
-
-                    {/* Reset Button */}
-                    <button 
-                        onClick={resetGame} 
-                        style={{ 
-                            marginTop: "10px", 
-                            backgroundColor: "#ff4d4d",
-                            width: 'auto' // Let button size naturally
-                        }}
-                    >
-                        Hard Reset Game
-                    </button>
                 </div>
             </div>
+                            );
+                        })}
+                </div> {/* --- END: Upgrades List Container --- */}
+                    
+                {/* Prestige Button */}
+                <button 
+                    onClick={prestigeGame} 
+                    disabled={coins < PRESTIGE_REQUIREMENT || calculatePrestigeGain(coins) <= 0}
+                    style={{ 
+                        marginTop: "20px",
+                        marginRight: "10px",
+                        backgroundColor: "#6a0dad", 
+                        opacity: (coins < PRESTIGE_REQUIREMENT || calculatePrestigeGain(coins) <= 0) ? 0.6 : 1,
+                        width: 'auto' // Let button size naturally
+                    }}
+                >
+                    Prestige (Req: ${formatNumber(PRESTIGE_REQUIREMENT)})
+                </button>
+
+                {/* Reset Button */}
+                <button 
+                    onClick={resetGame} 
+                    style={{ 
+                        marginTop: "10px", 
+                        marginLeft: "10px",
+                        backgroundColor: "#ff4d4d",
+                        width: 'auto' // Let button size naturally
+                    }}
+                >
+                    Hard Reset Game
+                </button>
+            </div> {/* --- END: Middle Column --- */}
 
             {/* --- Right Column: Charts --- */}
             <div style={{ 

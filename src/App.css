@@ -129,3 +129,48 @@ button:hover:not(:disabled) {
 .upgrade-item button {
     margin-bottom: 0; /* Remove default button margin if needed */
 }
+
+/* --- Minimalistic Scrollbar for Upgrade List --- */
+
+/* For WebKit Browsers (Chrome, Safari, Edge) */
+.upgrade-list-container::-webkit-scrollbar {
+  width: 6px; /* Width of the scrollbar */
+}
+
+.upgrade-list-container::-webkit-scrollbar-track {
+  background: #2c2c2c; /* Background of the scrollbar track */
+  border-radius: 3px;
+}
+
+.upgrade-list-container::-webkit-scrollbar-thumb {
+  background-color: #555; /* Color of the scrollbar thumb */
+  border-radius: 3px;
+  border: 1px solid #2c2c2c; /* Border matching the track */
+}
+
+.upgrade-list-container::-webkit-scrollbar-thumb:hover {
+  background-color: #777; /* Slightly lighter thumb on hover */
+}
+
+/* For Firefox */
+.upgrade-list-container {
+  scrollbar-width: thin; /* Use 'thin' */
+  scrollbar-color: #555 #2c2c2c; /* thumb color track color */
+}
+
+/* --- Optional: To completely hide scrollbar but keep functionality --- */
+/* Uncomment the block below if you prefer the scrollbar to be invisible */
+/*
+.upgrade-list-container::-webkit-scrollbar {
+  display: none; 
+  width: 0;
+  height: 0;
+}
+.upgrade-list-container {
+  scrollbar-width: none; 
+  -ms-overflow-style: none; 
+}
+.upgrade-list-container {
+  padding-right: 0px; // Reset padding if scrollbar is hidden
+}
+*/
