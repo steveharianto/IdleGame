@@ -51,29 +51,41 @@ const formatNumber = (num) => {
     return `${value.toFixed(2)} ${prefixes[prefix]}`;
 };
 
+// --- FULL UPGRADE LIST ---
+const ALL_UPGRADES = [
+    { id: 1, name: "Clicker", level: 0, baseCost: 10, effect: 1 }, // Effect is per click
+    { id: 2, name: "Farm", level: 0, baseCost: 100, effect: 5 }, // Effect is base CPS
+    { id: 3, name: "Mine", level: 0, baseCost: 1100, effect: 50 },
+    { id: 4, name: "Factory", level: 0, baseCost: 12000, effect: 500 },
+    // --- New Upgrades ---
+    { id: 5, name: "Bank", level: 0, baseCost: 130000, effect: 6000 },       // 130 K
+    { id: 6, name: "Temple", level: 0, baseCost: 1.5e6, effect: 75000 },      // 1.5 M
+    { id: 7, name: "Portal", level: 0, baseCost: 20e6, effect: 900000 },      // 20 M
+    { id: 8, name: "Alchemy Lab", level: 0, baseCost: 330e6, effect: 10e6 }, // 330 M
+    { id: 9, name: "Shipment", level: 0, baseCost: 5e9, effect: 150e6 },     // 5 B
+    { id: 10, name: "Time Machine", level: 0, baseCost: 75e9, effect: 2.5e9 }, // 75 B
+];
+
 function App() {
     const MAX_HISTORY_POINTS = 60; // Store last 60 data points (e.g., 10 minutes if saving every 10s)
 
     // Initialize game state from localStorage or use defaults
     const [gameState, setGameState] = useState(() => {
         const savedGame = localStorage.getItem("idleGameSave");
+        
+        // Start with a structure based on ALL_UPGRADES
         let initialState = {
             coins: 0,
             coinsPerSecond: 0,
             lastUpdate: Date.now(),
-            upgrades: [
-                { id: 1, name: "Clicker", level: 0, baseCost: 10, effect: 1 }, // Effect for Clicker is per click
-                { id: 2, name: "Farm", level: 0, baseCost: 100, effect: 5 }, // Effect for others is base CPS
-                { id: 3, name: "Mine", level: 0, baseCost: 1100, effect: 50 },
-                { id: 4, name: "Factory", level: 0, baseCost: 12000, effect: 500 }
-            ],
+            // Use ALL_UPGRADES as the base structure
+            upgrades: ALL_UPGRADES.map(u => ({ ...u, level: 0 })), 
             prestigePoints: 0,
             coinHistory: [],
-            // --- Statistics State ---
             totalClicks: 0,
             manualEarnings: 0,
-            totalEarnings: 0, // Includes manual + automatic
-            startTime: Date.now(), // Track session/total time
+            totalEarnings: 0,
+            startTime: Date.now(),
             prestigeCount: 0,
             highestCoins: 0
         };
@@ -81,27 +93,32 @@ function App() {
         if (savedGame) {
             try {
                 const loadedState = JSON.parse(savedGame);
-                // Merge ensuring all keys exist, prioritizing loaded data
+                
+                // Create a map of loaded levels for easy lookup
+                const loadedLevels = (loadedState.upgrades || []).reduce((map, upgrade) => {
+                    map[upgrade.id] = upgrade.level;
+                    return map;
+                }, {});
+
+                // Merge loaded levels into the full upgrade list
+                const mergedUpgrades = ALL_UPGRADES.map(defaultUpgrade => ({
+                    ...defaultUpgrade,
+                    level: loadedLevels[defaultUpgrade.id] || 0 // Use loaded level or default to 0
+                }));
+
                 initialState = {
                     ...initialState, // Start with defaults
-                    ...loadedState,  // Override with saved data
-                    // Ensure complex types are correctly handled/defaulted
-                    upgrades: loadedState.upgrades || initialState.upgrades,
+                    ...loadedState,  // Override with saved basic data
+                    upgrades: mergedUpgrades, // Use the merged list
+                    // Ensure stats have defaults if loading old save
+                    totalEarnings: loadedState.totalEarnings || (loadedState.coins || 0),
+                    highestCoins: loadedState.highestCoins || (loadedState.coins || 0),
+                    // ... (other stat defaults as before) ...
                     coinHistory: (loadedState.coinHistory || [])
-                        .map(p => ({ 
-                            timestamp: p.timestamp, 
-                            // Use totalEarnings if present, otherwise fall back to coins (for old saves)
-                            totalEarnings: p.totalEarnings ?? p.coins ?? 0 
-                        })) 
-                        .slice(-MAX_HISTORY_POINTS),
-                    // Make sure new stats have defaults if loading old save
-                    totalClicks: loadedState.totalClicks || 0,
-                    manualEarnings: loadedState.manualEarnings || 0,
-                    totalEarnings: loadedState.totalEarnings || (loadedState.coins || 0), // Approximate if missing
-                    startTime: loadedState.startTime || Date.now(),
-                    prestigeCount: loadedState.prestigeCount || 0,
-                    highestCoins: loadedState.highestCoins || (loadedState.coins || 0)
+                       .map(p => ({ timestamp: p.timestamp, totalEarnings: p.totalEarnings ?? p.coins ?? 0 }))
+                       .slice(-MAX_HISTORY_POINTS),
                 };
+
             } catch (error) {
                 console.error("Error loading saved game:", error);
                 localStorage.removeItem("idleGameSave"); // Clear corrupted save
@@ -110,10 +127,7 @@ function App() {
         
         initialState.coinsPerSecond = calculateTotalCPS(initialState.upgrades, initialState.prestigePoints);
         if (initialState.coinHistory.length === 0) {
-            initialState.coinHistory.push({ 
-                timestamp: initialState.lastUpdate, // Use lastUpdate for consistency
-                totalEarnings: initialState.totalEarnings 
-            });
+            initialState.coinHistory.push({ timestamp: initialState.lastUpdate, totalEarnings: initialState.totalEarnings });
         }
 
         return initialState;
@@ -334,30 +348,16 @@ function App() {
         }
         localStorage.removeItem("idleGameSave");
         
-        // Reset to the absolute initial state using the top-level helper
-        const initialState = {
-            coins: 0,
-            coinsPerSecond: 0.1, 
-            lastUpdate: Date.now(),
-            upgrades: [
-                { id: 1, name: "Clicker", level: 0, baseCost: 10, effect: 1 },
-                { id: 2, name: "Farm", level: 0, baseCost: 100, effect: 5 },
-                { id: 3, name: "Mine", level: 0, baseCost: 1100, effect: 50 },
-                { id: 4, name: "Factory", level: 0, baseCost: 12000, effect: 500 }
-            ],
-            prestigePoints: 0,
-            coinHistory: [{ timestamp: Date.now(), totalEarnings: 0 }], // Initialize history
-            // --- Reset ALL stats ---
-            totalClicks: 0,
-            manualEarnings: 0,
-            totalEarnings: 0,
-            startTime: Date.now(), // Reset start time
-            prestigeCount: 0,
-            highestCoins: 0
+        const initialStateReset = {
+            coins: 0, coinsPerSecond: 0, lastUpdate: Date.now(),
+            // Reset using the full list
+            upgrades: ALL_UPGRADES.map(u => ({ ...u, level: 0 })), 
+            prestigePoints: 0, coinHistory: [{ timestamp: Date.now(), coins: 0 }],
+            totalClicks: 0, manualEarnings: 0, totalEarnings: 0, 
+            startTime: Date.now(), prestigeCount: 0, highestCoins: 0
         };
-        // Ensure initial CPS is correctly set after reset using the globally defined function
-        initialState.coinsPerSecond = calculateTotalCPS(initialState.upgrades, initialState.prestigePoints); 
-        setGameState(initialState);
+        initialStateReset.coinsPerSecond = calculateTotalCPS(initialStateReset.upgrades, initialStateReset.prestigePoints); 
+        setGameState(initialStateReset);
     };
 
     // --- Prestige Function ---
@@ -375,11 +375,8 @@ function App() {
 
         setGameState(prev => {
             const newTotalPrestigePoints = prev.prestigePoints + gain;
-            
-            // Reset upgrades to level 0
-            const initialUpgrades = prev.upgrades.map(u => ({ ...u, level: 0 }));
-            
-            // Calculate the new CPS with reset upgrades but new prestige bonus
+            // Reset using the full list
+            const initialUpgrades = ALL_UPGRADES.map(u => ({ ...u, level: 0 }));
             const newCPS = calculateTotalCPS(initialUpgrades, newTotalPrestigePoints);
 
             console.log(`Prestiged! Gained ${gain} points. Total: ${newTotalPrestigePoints}`);
@@ -388,29 +385,27 @@ function App() {
                 ...prev, 
                 coins: 0,
                 coinsPerSecond: newCPS,
-                upgrades: initialUpgrades,
+                upgrades: initialUpgrades, // Set the reset full list
                 prestigePoints: newTotalPrestigePoints,
                 lastUpdate: Date.now(),
-                // --- Reset relevant stats on prestige ---
-                totalClicks: prev.totalClicks, // Keep total clicks? Or reset per prestige? Let's keep.
-                manualEarnings: prev.manualEarnings, // Keep total manual earnings? Let's keep.
-                // totalEarnings is implicitly reset by coins resetting
-                // startTime can be kept to track total playtime across prestiges
-                prestigeCount: prev.prestigeCount + 1, // Increment prestige count!
-                // highestCoins can be kept, or reset per prestige - let's keep overall highest
-                highestCoins: prev.highestCoins,
-                // Reset coin history
-                coinHistory: [{ timestamp: Date.now(), totalEarnings: 0 }] 
+                prestigeCount: prev.prestigeCount + 1,
+                coinHistory: [{ timestamp: Date.now(), coins: 0 }],
+                 // Keep other stats like totalClicks, manualEarnings, highestCoins, startTime
+                 totalClicks: prev.totalClicks, 
+                 manualEarnings: prev.manualEarnings, 
+                 totalEarnings: 0, // Total earnings reset implicitly via coins
+                 startTime: prev.startTime, 
+                 highestCoins: prev.highestCoins, 
             };
         });
     };
 
     return (
-        // Main container - NOW THREE COLUMNS
-        <div style={{ display: 'flex', gap: '1.5rem', alignItems: 'flex-start' }}>
+        // Main container - Increase the gap
+        <div style={{ display: 'flex', gap: '2.5rem', alignItems: 'flex-start' }}> {/* Increased gap from 1.5rem to 2.5rem */}
 
             {/* --- Left Column: Statistics --- */}
-            <div style={{ flex: 2, minWidth: '220px' }}> 
+            <div style={{ flex: 2, minWidth: '320px' }}> {/* Optional: Slightly increase minWidth */}
                  <GameStats 
                     totalClicks={totalClicks}
                     manualEarnings={manualEarnings}
@@ -470,30 +465,38 @@ function App() {
                 </div>
 
                 {/* Upgrades List and Buttons */}
-                <div style={{ display: "flex", flexDirection: "column", gap: "10px" }}>
-                    {upgrades.map(upgrade => (
-                         <div key={upgrade.id} style={{ display: "flex", alignItems: "center" }}>
-                            <div style={{ width: "100px", textAlign: "left" }}>
-                                {upgrade.name} ({upgrade.level})
+                <div style={{ display: "flex", flexDirection: "column", gap: "5px" }}> {/* Reduced gap slightly */}
+                     {/* Filter upgrades based on totalEarnings before mapping */}
+                     {upgrades
+                        .filter(upgrade => totalEarnings >= upgrade.baseCost || upgrade.level > 0) // Show if affordable OR already bought
+                        .map(upgrade => (
+                         // Add a wrapper div for animation
+                         <div key={upgrade.id} className="upgrade-item"> 
+                            <div style={{ display: "flex", alignItems: "center", padding: '5px 0' }}> {/* Inner flex container */}
+                                <div style={{ width: "100px", textAlign: "left", fontSize: '0.9em' }}> {/* Slightly smaller font */}
+                                    {upgrade.name} ({upgrade.level})
+                                </div>
+                                <button 
+                                    onClick={() => buyUpgrade(upgrade.id)} 
+                                    disabled={Math.floor(coins) < getUpgradeCost(upgrade)}
+                                    style={{ 
+                                        flex: 1,
+                                        opacity: Math.floor(coins) < getUpgradeCost(upgrade) ? 0.6 : 1,
+                                        margin: '0 0.5rem',
+                                        padding: '0.4em 0.8em', // Slightly smaller padding
+                                        fontSize: '0.85em' // Slightly smaller font
+                                    }}
+                                >
+                                    Buy: ${formatNumber(getUpgradeCost(upgrade))}
+                                </button>
+                                <div style={{ width: "100px", textAlign: "right", fontSize: '0.9em' }}> {/* Slightly smaller font */}
+                                    {upgrade.id === 1 ? 
+                                        `+${upgrade.effect}/click` : 
+                                        `+${formatNumber(upgrade.effect)}/s`}
+                                </div>
                             </div>
-                            <button 
-                                onClick={() => buyUpgrade(upgrade.id)} 
-                                disabled={Math.floor(coins) < getUpgradeCost(upgrade)}
-                                style={{ 
-                                    flex: 1,
-                                    opacity: Math.floor(coins) < getUpgradeCost(upgrade) ? 0.6 : 1,
-                                    margin: '0 0.5rem' // Remove default bottom margin, add side margin
-                                }}
-                            >
-                                Buy: ${formatNumber(getUpgradeCost(upgrade))}
-                            </button>
-                            <div style={{ width: "100px", textAlign: "right" }}>
-                                {upgrade.id === 1 ? 
-                                    `+${upgrade.effect}/click` : 
-                                    `+${formatNumber(upgrade.effect)}/s`}
-                            </div>
-                        </div>
-                    ))}
+                         </div> // End animation wrapper
+                     ))}
                     
                     {/* Prestige Button */}
                     <button 
@@ -526,7 +529,7 @@ function App() {
             {/* --- Right Column: Charts --- */}
             <div style={{ 
                 flex: 2, 
-                minWidth: '300px', 
+                minWidth: '320px', // Optional: Slightly increase minWidth
                 display: 'flex',        
                 flexDirection: 'column' 
             }}> 
