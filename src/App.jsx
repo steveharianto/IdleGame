@@ -24,6 +24,9 @@ function App() {
 
     const { coins, coinsPerSecond, upgrades } = gameState;
 
+    // Add at the top of your component
+    const [isPurchasing, setIsPurchasing] = useState(false);
+
     // Format large numbers with prefixes (K, M, B, etc.)
     const formatNumber = (num) => {
         // Check for NaN, undefined, or null
@@ -44,7 +47,7 @@ function App() {
         return `${value.toFixed(2)} ${prefixes[prefix]}`;
     };
 
-    // Game loop - update coins based on time passed
+    // Game loop - update coins with precision handling
     useEffect(() => {
         // Set a fixed starting time to ensure consistent tracking
         const gameStartTime = Date.now();
@@ -52,15 +55,15 @@ function App() {
         
         const updateGame = () => {
             const now = Date.now();
-            const elapsed = (now - lastUpdateTime) / 1000; // seconds since last update
+            const elapsed = (now - lastUpdateTime) / 1000;
             lastUpdateTime = now;
             
-            // Use toFixed(10) to avoid floating point errors
             setGameState(prev => {
-                const increment = parseFloat((prev.coinsPerSecond * elapsed).toFixed(10));
+                // Ensure consistent numeric handling
+                const increment = Number((prev.coinsPerSecond * elapsed).toFixed(10));
                 return {
                     ...prev,
-                    coins: parseFloat((prev.coins + increment).toFixed(10)),
+                    coins: Number((prev.coins + increment).toFixed(10)),
                     lastUpdate: now
                 };
             });
@@ -120,39 +123,48 @@ function App() {
         return Math.floor(upgrade.baseCost * Math.pow(1.15, upgrade.level));
     };
 
-    // Purchase an upgrade
+    // Purchase an upgrade with consistent number handling
     const buyUpgrade = (id) => {
+        if (isPurchasing) return; // Prevent multiple purchase attempts
+        
+        setIsPurchasing(true);
+        
         setGameState(prev => {
-            const newState = {...prev};
-            const upgrade = newState.upgrades.find(u => u.id === id);
-            
+            // Prevent any parallel execution issues - grab everything we need
+            const currentCoins = Number(prev.coins.toFixed(10));
+            const upgrade = prev.upgrades.find(u => u.id === id);
             const cost = getUpgradeCost(upgrade);
             
-            // Double-check affordability
-            if (prev.coins < cost) {
-                console.log("Can't afford: have", prev.coins, "need", cost);
-                return prev; // Can't afford
+            // Use exact same check as button
+            if (Math.floor(currentCoins) < cost) {
+                console.log(`Purchase failed: Have ${currentCoins}, need ${cost}`);
+                return prev;
             }
             
-            // Update coins and CPS
-            upgrade.level += 1;
+            // Create a new upgrades array to avoid mutation issues
+            const newUpgrades = prev.upgrades.map(u => 
+                u.id === id ? {...u, level: u.level + 1} : u
+            );
             
-            // Add effect to CPS (but handle clicker differently)
+            // Calculate new CPS
             let cpsBonus = upgrade.effect;
-            if (id === 1) {
-                // Clicker doesn't add as much to automatic CPS
-                cpsBonus = upgrade.effect / 10;
-            }
+            if (id === 1) cpsBonus = upgrade.effect / 10;
             
-            // Make sure to properly deduct the cost
-            const newCoins = Math.max(0, prev.coins - cost);
+            const newCPS = Number((prev.coinsPerSecond + cpsBonus).toFixed(10));
+            const newCoins = Number((currentCoins - cost).toFixed(10));
+            
+            console.log(`Purchase successful: ${upgrade.name} for ${cost}. New balance: ${newCoins}`);
             
             return {
-                ...newState,
+                ...prev,
                 coins: newCoins,
-                coinsPerSecond: prev.coinsPerSecond + cpsBonus
+                coinsPerSecond: newCPS,
+                upgrades: newUpgrades
             };
         });
+        
+        // Reset after a short delay
+        setTimeout(() => setIsPurchasing(false), 250);
     };
 
     // Handle manual clicks
@@ -205,7 +217,10 @@ function App() {
                         <button 
                             onClick={() => buyUpgrade(upgrade.id)} 
                             disabled={Math.floor(coins) < getUpgradeCost(upgrade)}
-                            style={{ flex: 1 }}
+                            style={{ 
+                                flex: 1,
+                                opacity: Math.floor(coins) < getUpgradeCost(upgrade) ? 0.6 : 1 
+                            }}
                         >
                             Buy: ${formatNumber(getUpgradeCost(upgrade))}
                         </button>
